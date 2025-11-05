@@ -9,6 +9,10 @@ As a photographer, I need to:
 4. **Understand precision** - Exact GPS vs "somewhere in London"
 5. **Handle different photo origins** - Digital camera, scanned slides, screenshots, web downloads
 6. **Distinguish camera from scanner** - Scanner model is not the camera that took the photo
+7. **Handle time/GPS inaccuracies** - Wrong camera clock, GPS drift, timezone issues
+8. **Group related photos** - Bursts, versions, composite images, film rolls
+9. **Track edits and derivations** - Original vs processed, crops, different versions
+10. **Manage professional metadata** - Copyright, licensing, client work
 
 ## Data Sources & Precision
 
@@ -466,6 +470,243 @@ photos = db.query(CorePhoto).filter(
     ])
 )
 ```
+
+## Additional Edge Cases & Requirements
+
+### 1. Time Corrections
+**Problem**: Camera clock wrong (very common!)
+```python
+# Original EXIF: 2023-01-01 12:00:00 (factory default)
+# Actual time: 2024-07-15 12:00:00
+
+@dataclass
+class TimeCorrection:
+    """Track manual time corrections"""
+    offset_seconds: int  # +47174400 seconds (548 days)
+    applied_by: str     # User who made correction
+    applied_at: datetime
+    reason: str         # "Camera clock not set"
+    
+# Add to Timestamp:
+corrections: List[TimeCorrection] = field(default_factory=list)
+```
+
+**Use case**: Bulk correct all photos from a trip where camera was in wrong timezone
+
+### 2. GPS Accuracy
+**Problem**: GPS can be inaccurate (tunnels, buildings, poor signal)
+```python
+# Add to Location:
+gps_accuracy_meters: Optional[float] = None  # ±10m, ±50m, ±500m
+altitude: Optional[float] = None
+altitude_accuracy_meters: Optional[float] = None
+```
+
+**Use case**: Filter out photos with GPS accuracy > 100m when creating maps
+
+### 3. Related Photo Groups
+**Problem**: Multiple photos that belong together
+
+```python
+class GroupType(Enum):
+    BURST = "burst"           # Rapid sequence (sports/action)
+    PANORAMA = "panorama"     # Source images for panorama
+    HDR = "hdr"              # Bracketed exposures
+    FOCUS_STACK = "focus_stack"  # Focus stacking
+    TIME_LAPSE = "time_lapse"    # Time-lapse sequence
+    FILM_ROLL = "film_roll"      # Images from same film roll
+    VERSION = "version"          # Same photo, different edits
+    
+@dataclass
+class PhotoGroup:
+    """Group related photos together"""
+    group_id: str
+    group_type: GroupType
+    sequence_number: int  # Position in group (1, 2, 3...)
+    total_in_group: int   # Total photos in this group
+    is_cover: bool = False  # Show this one in gallery view
+    
+    # For film rolls
+    film_roll_name: Optional[str] = None  # "Kodak Portra 400 #42"
+    frame_number: Optional[str] = None    # "12/36"
+
+# Add to CorePhoto:
+groups: List[PhotoGroup] = field(default_factory=list)
+```
+
+**Use case**: 
+- Show "1 of 100" in gallery for burst sequences
+- Group all frames from same film roll
+- Link all versions of same photo
+
+### 4. Derivations & Processing
+**Problem**: Edited/processed/cropped versions
+
+```python
+@dataclass
+class ProcessingInfo:
+    """Track how photo was processed"""
+    is_processed: bool = False
+    processing_software: Optional[str] = None  # "Adobe Lightroom 13.0"
+    processing_date: Optional[datetime] = None
+    
+    # Original photo reference
+    derived_from_hothash: Optional[str] = None
+    
+    # What was done
+    is_cropped: bool = False
+    is_color_adjusted: bool = False
+    is_filtered: bool = False
+    
+    # Processing presets/settings
+    preset_name: Optional[str] = None  # "Portra 400 Look"
+    
+# Add to CorePhoto:
+processing: ProcessingInfo = field(default_factory=ProcessingInfo)
+```
+
+**Use case**: 
+- Find all original/unprocessed photos only
+- Link processed versions to originals
+- Track editing history
+
+### 5. File Naming
+**Problem**: Original filename often lost after rename
+
+```python
+# Add to CorePhoto:
+original_filename: Optional[str] = None  # "DSC_1234.jpg" from camera
+current_filename: str                    # "2023-07-15_Oslo_Sunset.jpg"
+filename_history: List[str] = field(default_factory=list)
+```
+
+**Use case**: Always preserve camera's original filename for reference
+
+### 6. Professional Metadata
+**Problem**: Commissioned work, licensing, copyright
+
+```python
+@dataclass  
+class ProfessionalInfo:
+    """Professional photography metadata"""
+    # Copyright
+    copyright_holder: Optional[str] = None
+    copyright_year: Optional[int] = None
+    
+    # Licensing
+    license_type: Optional[str] = None  # "CC-BY", "All Rights Reserved", etc
+    usage_rights: Optional[str] = None
+    
+    # Commercial work
+    photographer_name: Optional[str] = None
+    client_name: Optional[str] = None
+    project_name: Optional[str] = None
+    job_identifier: Optional[str] = None
+    
+    # Publication
+    published_in: Optional[str] = None  # Magazine/website name
+    publication_date: Optional[datetime] = None
+    
+# Add to CorePhoto:
+professional: Optional[ProfessionalInfo] = None
+```
+
+**Use case**: Track client work, manage licensing, maintain copyright info
+
+### 7. Selection & Culling
+**Problem**: Photographers need to mark picks/rejects
+
+```python
+class ColorLabel(Enum):
+    """Lightroom-style color labels"""
+    NONE = "none"
+    RED = "red"
+    YELLOW = "yellow"
+    GREEN = "green"
+    BLUE = "blue"
+    PURPLE = "purple"
+
+# Add to CorePhoto:
+is_pick: bool = False       # Selected as good photo
+is_rejected: bool = False   # Marked for deletion
+color_label: ColorLabel = ColorLabel.NONE
+flag_status: Optional[str] = None  # Custom flags
+```
+
+**Use case**: 
+- "Show only picks" for portfolio selection
+- "Hide rejected" during culling
+- Color code by category/priority
+
+### 8. Composite Images
+**Problem**: Panorama/HDR made from multiple sources
+
+```python
+# Extend PhotoOrigin:
+class PhotoOrigin(Enum):
+    # ... existing ...
+    PANORAMA = "panorama"      # Stitched panorama
+    HDR = "hdr"               # HDR composite  
+    FOCUS_STACK = "focus_stack"  # Focus stacking result
+    VIDEO_FRAME = "video_frame"  # Extracted from video
+
+# Add to CaptureInfo:
+composite_source_hashes: List[str] = field(default_factory=list)
+composite_method: Optional[str] = None  # "Photoshop Photomerge", "PTGui"
+```
+
+**Use case**: Link composite to source images, show "made from 5 photos"
+
+### 9. Keywords & IPTC
+**Problem**: Professional metadata standards (IPTC)
+
+```python
+# Add to CorePhoto:
+keywords: List[str] = field(default_factory=list)  # IPTC keywords
+category: Optional[str] = None
+subject_code: Optional[str] = None
+```
+
+**Use case**: Standard metadata for stock photography, journalism
+
+### 10. Camera Settings Edge Cases
+**Problem**: Not all EXIF is reliable
+
+```python
+# Add to CaptureInfo:
+exif_confidence: float = 1.0  # 0.0-1.0, how reliable is EXIF?
+
+# Flags for problematic EXIF
+is_exif_modified: bool = False  # EXIF edited after capture
+is_exif_synthesized: bool = False  # EXIF added by software (not camera)
+```
+
+**Use case**: Warn user if EXIF may be unreliable
+
+## Recommended Implementation Priority
+
+### Phase 1 (Core - Must Have)
+1. ✅ Location with source/precision tracking
+2. ✅ Timestamp with source/precision tracking  
+3. ✅ CaptureInfo with PhotoOrigin
+4. ✅ Camera vs scanner separation
+
+### Phase 2 (High Priority)
+5. Time corrections (very common issue)
+6. GPS accuracy tracking
+7. File naming (original + current)
+8. Basic grouping (burst, film roll)
+
+### Phase 3 (Medium Priority)
+9. Processing/derivation tracking
+10. Professional metadata
+11. Selection tools (pick/reject/color labels)
+12. Composite image tracking
+
+### Phase 4 (Nice to Have)
+13. IPTC/keywords (standard compliance)
+14. EXIF confidence scoring
+15. Advanced grouping types
 
 ## Migration Strategy
 
