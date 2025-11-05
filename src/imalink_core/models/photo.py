@@ -72,10 +72,15 @@ class CorePhoto:
     # Identity (required)
     hothash: str  # SHA256 of hotpreview (unique ID)
     
-    # Preview (150x150 JPEG thumbnail)
+    # Hotpreview (150x150 JPEG thumbnail for galleries)
     hotpreview_base64: Optional[str] = None  # Base64-encoded JPEG
     hotpreview_width: Optional[int] = None   # Actual width after resize
     hotpreview_height: Optional[int] = None  # Actual height after resize
+    
+    # Coldpreview (1920x1080 JPEG for detail view)
+    coldpreview_base64: Optional[str] = None  # Base64-encoded JPEG
+    coldpreview_width: Optional[int] = None   # Actual width after resize
+    coldpreview_height: Optional[int] = None  # Actual height after resize
     
     # Files
     primary_filename: Optional[str] = None

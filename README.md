@@ -43,13 +43,16 @@ if result.success:
     photo = result.photo  # CorePhoto object
     print(f"Hothash: {photo.hothash}")
     print(f"Hotpreview: {photo.hotpreview_width}x{photo.hotpreview_height}px")
+    print(f"Coldpreview: {photo.coldpreview_width}x{photo.coldpreview_height}px")
     print(f"Taken at: {result.metadata.taken_at}")
     print(f"Camera: {result.metadata.camera_make} {result.metadata.camera_model}")
     print(f"GPS: {result.metadata.gps_latitude}, {result.metadata.gps_longitude}")
     
-    # Hotpreview is embedded in CorePhoto object
+    # Both previews are embedded in CorePhoto object
     if photo.hotpreview_base64:
-        print(f"Hotpreview ready for API transmission: {len(photo.hotpreview_base64)} bytes")
+        print(f"Hotpreview ready (gallery): {len(photo.hotpreview_base64)} bytes")
+    if photo.coldpreview_base64:
+        print(f"Coldpreview ready (detail view): {len(photo.coldpreview_base64)} bytes")
 else:
     print(f"Error: {result.error}")
 ```
