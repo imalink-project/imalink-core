@@ -27,21 +27,25 @@ git clone https://github.com/kjelkols/imalink-core.git
 cd imalink-core
 
 # Install dependencies
-uv pip install -e .
-uv pip install fastapi uvicorn[standard]
+pip install -e .
 
 # Start service
-uv run python -m service.main
+python -m service.main
 ```
 
 Service runs on: `http://localhost:8765`
 
-### Process an image via HTTP
+### Upload an image
 
 ```bash
+# Minimal PhotoEgg (hotpreview only)
 curl -X POST http://localhost:8765/v1/process \
-  -H "Content-Type: application/json" \
-  -d '{"file_path": "/photos/IMG_1234.jpg", "coldpreview_size": null}'
+  -F "file=@photo.jpg"
+
+# Full PhotoEgg (with coldpreview)
+curl -X POST http://localhost:8765/v1/process \
+  -F "file=@photo.jpg" \
+  -F "coldpreview_size=2560"
 ```
     
     # Both previews are embedded in CorePhoto object as Base64 strings
@@ -55,7 +59,7 @@ curl -X POST http://localhost:8765/v1/process \
   "hotpreview_width": 150,
   "hotpreview_height": 150,
   "coldpreview_base64": null,
-  "primary_filename": "IMG_1234.jpg",
+  "primary_filename": "photo.jpg",
   "width": 4000,
   "height": 3000,
   "taken_at": "2024-07-15T14:30:00Z",
@@ -68,27 +72,24 @@ curl -X POST http://localhost:8765/v1/process \
 ### Integration Examples
 
 <details>
-<summary><b>TypeScript/JavaScript</b></summary>
+<summary><b>TypeScript/JavaScript (Browser)</b></summary>
 
 ```typescript
-async function processImage(filePath: string, coldpreviewSize?: number) {
-  const response = await fetch('http://localhost:8765/v1/process', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      file_path: filePath,
-      coldpreview_size: coldpreviewSize ?? null
-    })
-  });
-  
-  return await response.json();
-}
+// HTML: <input type="file" id="fileInput">
 
-// Minimal PhotoEgg (hotpreview only)
-const minimal = await processImage('/photos/IMG_1234.jpg');
+const fileInput = document.getElementById('fileInput') as HTMLInputElement;
+const file = fileInput.files[0];
 
-// Full PhotoEgg (with coldpreview)
-const full = await processImage('/photos/IMG_1234.jpg', 2560);
+const formData = new FormData();
+formData.append('file', file);
+formData.append('coldpreview_size', '2560');  // optional
+
+const response = await fetch('http://localhost:8765/v1/process', {
+  method: 'POST',
+  body: formData
+});
+
+const photoEgg = await response.json();
 ```
 </details>
 
@@ -98,22 +99,17 @@ const full = await processImage('/photos/IMG_1234.jpg', 2560);
 ```python
 import requests
 
-def process_image(file_path: str, coldpreview_size: int | None = None):
+with open('photo.jpg', 'rb') as f:
+    files = {'file': f}
+    data = {'coldpreview_size': 2560}  # optional
+    
     response = requests.post(
         'http://localhost:8765/v1/process',
-        json={
-            'file_path': file_path,
-            'coldpreview_size': coldpreview_size
-        }
+        files=files,
+        data=data
     )
-    response.raise_for_status()
-    return response.json()
-
-# Minimal PhotoEgg
-photo = process_image('/photos/IMG_1234.jpg')
-
-# Full PhotoEgg
-photo = process_image('/photos/IMG_1234.jpg', coldpreview_size=2560)
+    
+photo_egg = response.json()
 ```
 </details>
 

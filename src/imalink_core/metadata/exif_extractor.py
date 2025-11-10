@@ -6,6 +6,7 @@ Provides reliable extraction of EXIF metadata from image files.
 
 from dataclasses import dataclass
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -119,6 +120,56 @@ class ExifExtractor:
         return result
     
     @staticmethod
+    def extract_basic_from_bytes(image_bytes: bytes) -> BasicMetadata:
+        """
+        Extract core metadata from image bytes.
+        
+        Args:
+            image_bytes: Raw image file bytes
+            
+        Returns:
+            BasicMetadata object with core metadata
+        """
+        result = BasicMetadata()
+        
+        try:
+            with Image.open(BytesIO(image_bytes)) as img:
+                # Get dimensions
+                result.width, result.height = img.size
+                
+                # Get EXIF data
+                exif = img.getexif()
+                if not exif:
+                    return result
+                
+                # Extract timestamp (98%+ reliable)
+                for datetime_tag in [36867, 36868, 306]:  # DateTimeOriginal, DateTimeDigitized, DateTime
+                    if datetime_tag in exif:
+                        dt_str = exif[datetime_tag]
+                        if dt_str:
+                            result.taken_at = ExifExtractor._parse_datetime(dt_str)
+                            break
+                
+                # Extract camera make/model
+                if 271 in exif:  # Make
+                    result.camera_make = str(exif[271]).strip()
+                if 272 in exif:  # Model
+                    result.camera_model = str(exif[272]).strip()
+                
+                # Extract GPS coordinates (98%+ reliable if present)
+                if 34853 in exif:  # GPSInfo
+                    gps_data = exif.get_ifd(34853)
+                    lat, lon = ExifExtractor._extract_gps(gps_data)
+                    result.gps_latitude = lat
+                    result.gps_longitude = lon
+                
+        except Exception as e:
+            # Silent failure - return partial data
+            pass
+        
+        return result
+    
+    @staticmethod
     def extract_camera_settings(image_path: Path) -> CameraSettings:
         """
         Extract camera settings (best-effort).
@@ -186,6 +237,89 @@ class ExifExtractor:
                         3: 'Aperture Priority', 4: 'Shutter Priority',
                         5: 'Creative Program', 6: 'Action Program',
                         7: 'Portrait Mode', 8: 'Landscape Mode'
+                    }
+                    result.exposure_program = programs.get(exif[34850], 'Unknown')
+                
+                # Metering mode (70%+ reliable)
+                if 37383 in exif:  # MeteringMode
+                    metering = {
+                        0: 'Unknown', 1: 'Average', 2: 'Center Weighted Average',
+                        3: 'Spot', 4: 'Multi-Spot', 5: 'Multi-Segment', 6: 'Partial'
+                    }
+                    result.metering_mode = metering.get(exif[37383], 'Unknown')
+                
+                # White balance (70%+ reliable)
+                if 41987 in exif:  # WhiteBalance
+                    wb = exif[41987]
+                    result.white_balance = 'Auto' if wb == 0 else 'Manual'
+                    
+        except Exception as e:
+            # Silent failure - return partial data
+            pass
+        
+        return result
+    
+    @staticmethod
+    def extract_camera_settings_from_bytes(image_bytes: bytes) -> CameraSettings:
+        """
+        Extract camera settings from image bytes (best-effort).
+        
+        Args:
+            image_bytes: Raw image file bytes
+            
+        Returns:
+            CameraSettings object with available settings
+        """
+        result = CameraSettings()
+        
+        try:
+            with Image.open(BytesIO(image_bytes)) as img:
+                exif = img.getexif()
+                if not exif:
+                    return result
+                
+                # ISO (80-90% reliable)
+                if 34855 in exif:  # ISOSpeedRatings
+                    result.iso = exif[34855]
+                
+                # Aperture (85-90% reliable)
+                if 33437 in exif:  # FNumber
+                    result.aperture = float(exif[33437])
+                
+                # Shutter speed (85-90% reliable)
+                if 33434 in exif:  # ExposureTime
+                    exp_time = exif[33434]
+                    if isinstance(exp_time, tuple):
+                        result.shutter_speed = f"{exp_time[0]}/{exp_time[1]}"
+                    else:
+                        result.shutter_speed = f"{float(exp_time)}"
+                
+                # Focal length (80-85% reliable)
+                if 37386 in exif:  # FocalLength
+                    focal = exif[37386]
+                    if isinstance(focal, tuple):
+                        result.focal_length = focal[0] / focal[1]
+                    else:
+                        result.focal_length = focal
+                
+                # Lens info (60-70% reliable)
+                if 42036 in exif:  # LensModel
+                    result.lens_model = exif[42036]
+                if 42035 in exif:  # LensMake
+                    result.lens_make = exif[42035]
+                
+                # Flash (75%+ reliable)
+                if 37385 in exif:  # Flash
+                    flash_val = exif[37385]
+                    result.flash = 'Fired' if (flash_val & 1) else 'No Flash'
+                
+                # Exposure program (70%+ reliable)
+                if 34850 in exif:  # ExposureProgram
+                    programs = {
+                        0: 'Not Defined', 1: 'Manual', 2: 'Program AE', 
+                        3: 'Aperture Priority', 4: 'Shutter Priority',
+                        5: 'Creative (Slow Speed)', 6: 'Action (High Speed)',
+                        7: 'Portrait', 8: 'Landscape'
                     }
                     result.exposure_program = programs.get(exif[34850], 'Unknown')
                 

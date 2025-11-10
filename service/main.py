@@ -4,18 +4,18 @@ FastAPI service for imalink-core
 Exposes image processing as HTTP API for language-agnostic access.
 """
 
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from imalink_core.metadata.exif_extractor import ExifExtractor
-from imalink_core.models.import_result import ImportResult
 from imalink_core.models.photo import CorePhoto
 from imalink_core.preview.generator import PreviewGenerator
-from imalink_core.validation.image_validator import ImageValidator
+from PIL import Image, ImageOps
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -34,17 +34,7 @@ app.add_middleware(
 )
 
 
-# Request/Response Models
-class ProcessImageRequest(BaseModel):
-    """Request to process an image file"""
-    file_path: str = Field(..., description="Absolute path to image file on disk")
-    coldpreview_size: Optional[int] = Field(
-        None, 
-        description="Size for coldpreview (e.g., 2560). None = skip coldpreview. Must be >= 150.",
-        ge=150
-    )
-
-
+# Response Model
 class PhotoEggResponse(BaseModel):
     """PhotoEgg - complete image data in JSON format"""
     # Identity
@@ -104,11 +94,16 @@ def root():
 
 
 @app.post("/v1/process", response_model=PhotoEggResponse, responses={400: {"model": ErrorResponse}})
-def process_image_endpoint(request: ProcessImageRequest):
+async def process_image_endpoint(
+    file: UploadFile = File(..., description="Image file to process"),
+    coldpreview_size: Optional[int] = Form(None, description="Size for coldpreview (e.g., 2560). None = skip coldpreview. Must be >= 150.")
+):
     """
-    Process image file and return PhotoEgg JSON.
+    Process uploaded image file and return PhotoEgg JSON.
     
-    Core's single responsibility: (filepath, coldpreview_size) → PhotoEgg
+    Upload image via multipart/form-data (standard file upload).
+    
+    Core's single responsibility: (image file, coldpreview_size) → PhotoEgg
     
     PhotoEgg always includes:
     - Hotpreview (150x150px thumbnail) as Base64
@@ -119,48 +114,61 @@ def process_image_endpoint(request: ProcessImageRequest):
     - Coldpreview (larger preview) as Base64
     
     Args:
-        request: ProcessImageRequest with file_path and optional coldpreview_size
+        file: Uploaded image file (multipart/form-data)
+        coldpreview_size: Optional size for coldpreview (form field)
         
     Returns:
         PhotoEggResponse: Complete image data in JSON format
         
     Raises:
-        HTTPException 400: If file not found or processing fails
+        HTTPException 400: If file processing fails
         HTTPException 422: If validation fails (e.g., coldpreview_size < 150)
+        
+    Example:
+        curl -X POST http://localhost:8765/v1/process \\
+          -F "file=@photo.jpg" \\
+          -F "coldpreview_size=2560"
     """
     # Validate coldpreview_size if provided
-    if request.coldpreview_size is not None and request.coldpreview_size < 150:
+    if coldpreview_size is not None and coldpreview_size < 150:
         raise HTTPException(
             status_code=400,
-            detail=f"coldpreview_size must be >= 150 (hotpreview size), got {request.coldpreview_size}"
+            detail=f"coldpreview_size must be >= 150 (hotpreview size), got {coldpreview_size}"
         )
-    
-    # Validate file exists
-    file_path = Path(request.file_path)
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=400,
-            detail=f"File not found: {request.file_path}"
-        )
-    
-    # Validate file
-    is_valid, error = ImageValidator.validate_file(file_path)
-    if not is_valid:
-        raise HTTPException(status_code=400, detail=error)
     
     try:
-        # Extract metadata
-        metadata = ExifExtractor.extract_basic(file_path)
-        camera_settings = ExifExtractor.extract_camera_settings(file_path)
+        # Read uploaded file into memory
+        image_bytes = await file.read()
         
-        # Generate hotpreview (always required)
-        hotpreview = PreviewGenerator.generate_hotpreview(file_path)
+        # Validate it's an image and open it
+        try:
+            img = Image.open(BytesIO(image_bytes))
+            img.verify()  # Check if it's a valid image
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid image file: {str(e)}"
+            )
+        
+        # Re-open image for processing (verify() closes it) and apply EXIF rotation
+        img = Image.open(BytesIO(image_bytes))
+        try:
+            img = ImageOps.exif_transpose(img)  # Rotate based on EXIF orientation
+        except Exception:
+            pass  # No EXIF orientation or already correct
+        
+        # Extract metadata from bytes
+        metadata = ExifExtractor.extract_basic_from_bytes(image_bytes)
+        camera_settings = ExifExtractor.extract_camera_settings_from_bytes(image_bytes)
+        
+        # Generate hotpreview from image
+        hotpreview = PreviewGenerator.generate_hotpreview_from_image(img)
         
         # Generate coldpreview (optional)
-        if request.coldpreview_size is not None:
-            coldpreview = PreviewGenerator.generate_coldpreview(
-                file_path,
-                max_size=request.coldpreview_size
+        if coldpreview_size is not None:
+            coldpreview = PreviewGenerator.generate_coldpreview_from_image(
+                img,
+                max_size=coldpreview_size
             )
             coldpreview_base64 = coldpreview.base64
             coldpreview_width = coldpreview.width
@@ -179,7 +187,7 @@ def process_image_endpoint(request: ProcessImageRequest):
             coldpreview_base64=coldpreview_base64,
             coldpreview_width=coldpreview_width,
             coldpreview_height=coldpreview_height,
-            primary_filename=file_path.name,
+            primary_filename=file.filename,
             taken_at=metadata.taken_at,
             width=metadata.width,
             height=metadata.height,

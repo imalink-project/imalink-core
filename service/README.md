@@ -1,49 +1,37 @@
 # ImaLink Core - FastAPI Service
 
-Run imalink-core as HTTP service for language-agnostic access.
+Image processing HTTP service. Upload image → get PhotoEgg JSON.
 
 ## Quick Start
 
-### Local Development
-
 ```bash
-# Install dependencies
-uv pip install -e .
-uv pip install fastapi uvicorn[standard]
+# Install
+pip install -e .
 
-# Run service
+# Start service
 python -m service.main
-
-# Or with uvicorn directly
-uvicorn service.main:app --reload --port 8765
 ```
 
 Service runs on: `http://localhost:8765`
 
-### Docker
+## API: POST /v1/process
+
+**Upload image file (multipart/form-data)**
+
+### curl Examples
 
 ```bash
-# Build image
-docker build -f service/Dockerfile -t imalink-core-api .
-
-# Run container
-docker run -p 8765:8765 -v /path/to/photos:/photos imalink-core-api
-```
-
-## API Usage
-
-### Process Image (Minimal PhotoEgg)
-
-```bash
+# Minimal PhotoEgg (hotpreview only)
 curl -X POST http://localhost:8765/v1/process \
-  -H "Content-Type: application/json" \
-  -d '{
-    "file_path": "/photos/IMG_1234.jpg",
-    "coldpreview_size": null
-  }'
+  -F "file=@photo.jpg"
+
+# Full PhotoEgg (with coldpreview)
+curl -X POST http://localhost:8765/v1/process \
+  -F "file=@photo.jpg" \
+  -F "coldpreview_size=2560"
 ```
 
-Returns PhotoEgg with **hotpreview only** (fastest):
+### Response (PhotoEgg JSON)
 
 ```json
 {
@@ -52,7 +40,7 @@ Returns PhotoEgg with **hotpreview only** (fastest):
   "hotpreview_width": 150,
   "hotpreview_height": 150,
   "coldpreview_base64": null,
-  "primary_filename": "IMG_1234.jpg",
+  "primary_filename": "photo.jpg",
   "width": 4000,
   "height": 3000,
   "taken_at": "2024-07-15T14:30:00Z",
@@ -62,163 +50,147 @@ Returns PhotoEgg with **hotpreview only** (fastest):
 }
 ```
 
-### Process Image (Full PhotoEgg)
+## Integration Examples
 
-```bash
-curl -X POST http://localhost:8765/v1/process \
-  -H "Content-Type: application/json" \
-  -d '{
-    "file_path": "/photos/IMG_1234.jpg",
-    "coldpreview_size": 2560
-  }'
-```
-
-Returns PhotoEgg with **hotpreview + coldpreview**:
-
-```json
-{
-  "hothash": "abc123...",
-  "hotpreview_base64": "/9j/4AAQSkZJRg...",
-  "hotpreview_width": 150,
-  "hotpreview_height": 150,
-  "coldpreview_base64": "/9j/4AAQSkZJRg...",
-  "coldpreview_width": 2560,
-  "coldpreview_height": 1920,
-  "primary_filename": "IMG_1234.jpg"
-}
-```
-
-### Health Check
-
-```bash
-curl http://localhost:8765/health
-```
-
-## TypeScript/JavaScript Integration
+### TypeScript/JavaScript (Browser)
 
 ```typescript
-interface ProcessImageRequest {
-  file_path: string;
-  coldpreview_size?: number | null;
-}
+// HTML: <input type="file" id="fileInput">
 
-interface PhotoEgg {
-  hothash: string;
-  hotpreview_base64: string;
-  hotpreview_width: number;
-  hotpreview_height: number;
-  coldpreview_base64?: string | null;
-  coldpreview_width?: number | null;
-  coldpreview_height?: number | null;
-  primary_filename: string;
-  width: number;
-  height: number;
-  taken_at?: string | null;
-  camera_make?: string | null;
-  gps_latitude?: number | null;
-  has_gps: boolean;
-}
+const fileInput = document.getElementById('fileInput') as HTMLInputElement;
+const file = fileInput.files[0];
 
-async function processImage(filePath: string, coldpreviewSize?: number): Promise<PhotoEgg> {
-  const response = await fetch('http://localhost:8765/v1/process', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      file_path: filePath,
-      coldpreview_size: coldpreviewSize ?? null
-    })
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Processing failed: ${response.statusText}`);
-  }
-  
-  return await response.json();
-}
+const formData = new FormData();
+formData.append('file', file);
+formData.append('coldpreview_size', '2560');  // optional
 
-// Minimal PhotoEgg (hotpreview only)
-const minimal = await processImage('/photos/IMG_1234.jpg');
+const response = await fetch('http://localhost:8765/v1/process', {
+  method: 'POST',
+  body: formData
+});
 
-// Full PhotoEgg (with coldpreview)
-const full = await processImage('/photos/IMG_1234.jpg', 2560);
+const photoEgg = await response.json();
+console.log('Hothash:', photoEgg.hothash);
 ```
 
-## Python Client
+### TypeScript/JavaScript (Node.js)
+
+```typescript
+import fs from 'fs';
+import FormData from 'form-data';
+
+const formData = new FormData();
+formData.append('file', fs.createReadStream('/photos/IMG_1234.jpg'));
+formData.append('coldpreview_size', '2560');
+
+const response = await fetch('http://localhost:8765/v1/process', {
+  method: 'POST',
+  body: formData
+});
+
+const photoEgg = await response.json();
+```
+
+### Python
 
 ```python
 import requests
-from pathlib import Path
 
-def process_image(file_path: Path, coldpreview_size: int | None = None) -> dict:
+with open('/photos/IMG_1234.jpg', 'rb') as f:
+    files = {'file': f}
+    data = {'coldpreview_size': 2560}
+    
     response = requests.post(
         'http://localhost:8765/v1/process',
-        json={
-            'file_path': str(file_path),
-            'coldpreview_size': coldpreview_size
-        }
+        files=files,
+        data=data
     )
-    response.raise_for_status()
-    return response.json()
-
-# Minimal PhotoEgg
-photo = process_image(Path('/photos/IMG_1234.jpg'))
-
-# Full PhotoEgg
-photo = process_image(Path('/photos/IMG_1234.jpg'), coldpreview_size=2560)
+    
+photo_egg = response.json()
+print(f"Hothash: {photo_egg['hothash']}")
 ```
 
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | API root - health check |
-| `/v1/process` | POST | Process image and return PhotoEgg |
-| `/health` | GET | Health check for monitoring |
-
-## Configuration
-
-- **Port**: 8765 (default)
-- **Host**: 0.0.0.0 (all interfaces)
-- **CORS**: Enabled for all origins (configure for production)
-
-## Base64 Format
-
-All image previews use Base64 encoding (industry standard for binary data in JSON):
-
-- `hotpreview_base64`: Base64-encoded JPEG string (~5-15KB)
-- `coldpreview_base64`: Base64-encoded JPEG string (~100-200KB) or null
-
-To decode in Python:
-
-```python
-import base64
-from io import BytesIO
-from PIL import Image
-
-# Decode Base64 to image
-image_bytes = base64.b64decode(photo['hotpreview_base64'])
-image = Image.open(BytesIO(image_bytes))
-```
-
-To decode in JavaScript:
+### Electron/Tauri (Desktop App)
 
 ```typescript
-// Decode Base64 to Blob
-const blob = await fetch(`data:image/jpeg;base64,${photo.hotpreview_base64}`).then(r => r.blob());
-const url = URL.createObjectURL(blob);
+// User selects file
+const filePath = await open({
+  filters: [{
+    name: 'Images',
+    extensions: ['jpg', 'jpeg', 'png']
+  }]
+});
 
-// Or use directly in <img> tag
-<img src={`data:image/jpeg;base64,${photo.hotpreview_base64}`} />
+// Read file
+const fileBuffer = await readBinaryFile(filePath);
+const blob = new Blob([fileBuffer]);
+const file = new File([blob], 'photo.jpg');
+
+// Upload to local core service
+const formData = new FormData();
+formData.append('file', file);
+
+const response = await fetch('http://localhost:8765/v1/process', {
+  method: 'POST',
+  body: formData
+});
+
+const photoEgg = await response.json();
+
+// Send PhotoEgg to remote backend
+await fetch('https://backend.com/api/photos', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(photoEgg)
+});
 ```
 
-## Development
+## API Parameters
 
-Run with auto-reload:
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | File | Yes | Image file (JPEG, PNG, etc.) |
+| `coldpreview_size` | int | No | Size for coldpreview (e.g., 2560). Omit for minimal PhotoEgg. Must be >= 150. |
+
+## PhotoEgg Fields
+
+| Field | Type | Always Present | Description |
+|-------|------|----------------|-------------|
+| `hothash` | string | ✅ | SHA256 hash of hotpreview (unique ID) |
+| `hotpreview_base64` | string | ✅ | 150x150 thumbnail (Base64 JPEG) |
+| `hotpreview_width` | int | ✅ | Hotpreview width (usually 150) |
+| `hotpreview_height` | int | ✅ | Hotpreview height (usually 150) |
+| `coldpreview_base64` | string/null | ✅ | Larger preview (Base64 JPEG) or null |
+| `coldpreview_width` | int/null | ✅ | Coldpreview width or null |
+| `coldpreview_height` | int/null | ✅ | Coldpreview height or null |
+| `primary_filename` | string | ✅ | Original filename |
+| `width` | int | ✅ | Original image width |
+| `height` | int | ✅ | Original image height |
+| `taken_at` | string/null | ✅ | ISO 8601 timestamp from EXIF |
+| `camera_make` | string/null | ✅ | Camera manufacturer |
+| `camera_model` | string/null | ✅ | Camera model |
+| `gps_latitude` | float/null | ✅ | GPS latitude |
+| `gps_longitude` | float/null | ✅ | GPS longitude |
+| `has_gps` | boolean | ✅ | Whether GPS data exists |
+| `iso` | int/null | ✅ | ISO speed |
+| `aperture` | float/null | ✅ | Aperture (f-stop) |
+| `shutter_speed` | string/null | ✅ | Shutter speed |
+| `focal_length` | float/null | ✅ | Focal length (mm) |
+| `lens_model` | string/null | ✅ | Lens model |
+| `lens_make` | string/null | ✅ | Lens manufacturer |
+
+## Docker Deployment
 
 ```bash
-uvicorn service.main:app --reload --port 8765
+# Build
+docker build -f service/Dockerfile -t imalink-core:latest .
+
+# Run
+docker run -p 8765:8765 imalink-core:latest
 ```
 
-Access interactive API docs:
+## Interactive API Docs
+
+When service is running:
 - Swagger UI: http://localhost:8765/docs
 - ReDoc: http://localhost:8765/redoc

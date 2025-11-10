@@ -115,6 +115,51 @@ class PreviewGenerator:
         )
     
     @staticmethod
+    def generate_hotpreview_from_image(
+        img: Image.Image,
+        size: Tuple[int, int] = DEFAULT_HOT_SIZE,
+        quality: int = 85
+    ) -> HotPreview:
+        """
+        Generate 150x150 thumbnail + hothash from PIL Image.
+        
+        Args:
+            img: PIL Image object (already opened, EXIF rotation already applied)
+            size: Thumbnail size (default 150x150)
+            quality: JPEG quality 0-100 (default 85)
+            
+        Returns:
+            HotPreview object with bytes, base64, hothash
+        """
+        # Copy image to avoid modifying original
+        img_copy = img.copy()
+        
+        # Generate thumbnail (maintains aspect ratio)
+        img_copy.thumbnail(size, Image.Resampling.LANCZOS)
+        
+        # Get actual dimensions after resize
+        width, height = img_copy.size
+        
+        # Convert to JPEG bytes
+        buffer = BytesIO()
+        img_copy.convert("RGB").save(buffer, format="JPEG", quality=quality)
+        preview_bytes = buffer.getvalue()
+        
+        # Generate hothash (SHA256 of preview bytes)
+        hothash = hashlib.sha256(preview_bytes).hexdigest()
+        
+        # Base64 encode for API transmission
+        preview_b64 = base64.b64encode(preview_bytes).decode()
+        
+        return HotPreview(
+            bytes=preview_bytes,
+            base64=preview_b64,
+            hothash=hothash,
+            width=width,
+            height=height
+        )
+    
+    @staticmethod
     def generate_coldpreview(
         image_path: Path,
         max_size: int = 1920,
@@ -153,6 +198,47 @@ class PreviewGenerator:
         # Convert to JPEG bytes
         buffer = BytesIO()
         img.convert("RGB").save(buffer, format="JPEG", quality=quality)
+        preview_bytes = buffer.getvalue()
+        
+        # Base64 encode for API transmission
+        preview_b64 = base64.b64encode(preview_bytes).decode()
+        
+        return ColdPreview(
+            bytes=preview_bytes,
+            base64=preview_b64,
+            width=width,
+            height=height
+        )
+    
+    @staticmethod
+    def generate_coldpreview_from_image(
+        img: Image.Image,
+        max_size: int = 1920,
+        quality: int = 90
+    ) -> ColdPreview:
+        """
+        Generate preview from PIL Image.
+        
+        Args:
+            img: PIL Image object (already opened, EXIF rotation already applied)
+            max_size: Maximum dimension in pixels (default 1920)
+            quality: JPEG quality 0-100 (default 90)
+            
+        Returns:
+            ColdPreview object with bytes and dimensions
+        """
+        # Copy image to avoid modifying original
+        img_copy = img.copy()
+        
+        # Resize to max dimension while maintaining aspect ratio
+        img_copy.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        
+        # Get actual dimensions after resize
+        width, height = img_copy.size
+        
+        # Convert to JPEG bytes
+        buffer = BytesIO()
+        img_copy.convert("RGB").save(buffer, format="JPEG", quality=quality)
         preview_bytes = buffer.getvalue()
         
         # Base64 encode for API transmission
