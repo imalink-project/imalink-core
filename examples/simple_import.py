@@ -18,8 +18,11 @@ def main():
     print(f"Processing {image_path}...")
     print("-" * 60)
     
-    # Process the image (default 1920px coldpreview)
+    # Process the image (default: minimal PhotoEgg with hotpreview only)
     result = process_image(image_path)
+    
+    # Or with full coldpreview:
+    # result = process_image(image_path, coldpreview_size=1920)
     
     if result.success:
         print("✓ Success!\n")

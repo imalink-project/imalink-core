@@ -37,8 +37,11 @@ def main():
         else:
             print(f"[{current}/{total}] ✗ {result.error}")
     
-    # Process all images (default 1920px coldpreview)
+    # Process all images (default: minimal PhotoEggs with hotpreview only)
     results = batch_process(images, progress_callback=on_progress)
+    
+    # Or with full coldpreview:
+    # results = batch_process(images, coldpreview_size=1920, progress_callback=on_progress)
     
     # Summary
     print("=" * 60)

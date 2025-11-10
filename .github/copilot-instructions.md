@@ -32,14 +32,15 @@ imalink-core serves as the **canonical processing layer** between:
 
 ```python
 # User selects file from their disk: C:/Photos/Vacation/IMG_1234.jpg
+
+# Minimal PhotoEgg (hotpreview only, default - fastest)
 result = process_image(Path(user_selected_file))
-# Default: generates 1920px coldpreview + 150px hotpreview
+
+# Full PhotoEgg with 1920px coldpreview
+result = process_image(Path(user_selected_file), coldpreview_size=1920)
 
 # Custom coldpreview size
-result = process_image(Path(user_selected_file), coldpreview_max_size=1024)
-
-# Skip coldpreview (hotpreview only)
-result = process_image(Path(user_selected_file), coldpreview_max_size=None)
+result = process_image(Path(user_selected_file), coldpreview_size=1024)
 
 if result.success:
     # Send CorePhoto metadata to backend API
@@ -56,40 +57,51 @@ if result.success:
 Understanding the model separation is essential:
 
 1. **CorePhoto** (`src/imalink_core/models/photo.py`) - Complete extractable data
-   - Contains hotpreview (150x150) AND coldpreview (1920x1080) as base64
+   - ALWAYS contains hotpreview (150x150) as base64
+   - OPTIONALLY contains coldpreview (e.g. 1920x1080) as base64
    - Used during image import/processing pipeline
    - NOT the canonical API model (common misconception - see `PHOTO_MODEL_DESIGN.md`)
    - Includes optional backend fields (`id`, `user_id`) but these are None during core processing
 
 2. **Backend Photo** (external to this library) - Persisted database model
    - Receives CorePhoto, selectively stores fields
-   - Keeps hotpreview (small ~5-15KB), omits coldpreview (large ~100-200KB)
+   - Keeps hotpreview (small ~5-15KB), handles coldpreview based on storage strategy
    - Adds user organization (rating, tags, albums)
 
 3. **Coldpreview Strategy** - Optional in PhotoEgg
-   - CorePhoto includes coldpreview during processing (~100-200KB)
-   - Consumer decides: include in upload or omit to save bandwidth
-   - Backend storage strategy is external to core (disk, S3, cache, etc.)
+   - CorePhoto can include coldpreview during processing (~100-200KB)
+   - Default: skip coldpreview (None) for fastest processing
+   - Explicit choice: include coldpreview when needed
+   - Backend storage strategy is external to core (disk, S3, cache, on-demand, etc.)
    - Core doesn't know or care where coldpreview is stored
 
 ### Core Processing Pipeline
 
 ```python
-# Single image: api.process_image(path, coldpreview_max_size=1920)
-Path → validate → extract EXIF → generate previews → calculate hothash → CorePhoto
+# Core's single responsibility: (filepath, coldpreview_size) → PhotoEgg JSON
 
-# Optional: skip coldpreview
-process_image(path, coldpreview_max_size=None)  # Only hotpreview
+# Minimal PhotoEgg (default - hotpreview only)
+process_image(path)
 
-# Batch: api.batch_process(paths, coldpreview_max_size=1920)
-[Path] → parallel processing → progress callbacks → [ImportResult]
+# Full PhotoEgg with 1920px coldpreview
+process_image(path, coldpreview_size=1920)
+
+# Custom coldpreview size
+process_image(path, coldpreview_size=1024)
+
+# Batch processing
+batch_process(paths, coldpreview_size=None, progress_callback=...)  # Minimal
+batch_process(paths, coldpreview_size=1920, progress_callback=...)  # Full
+
+Path → validate → extract EXIF → generate previews → calculate hothash → PhotoEgg
 ```
 
 **API Parameters**:
-- `coldpreview_max_size`: Optional[int] = 1920
-  - Default 1920: generates 1920px coldpreview
-  - Custom size: e.g., 1024 for smaller preview
-  - None: skip coldpreview (hotpreview only, saves bandwidth/processing)
+- `coldpreview_size`: Optional[int] = None
+  - None (default): Minimal PhotoEgg - skip coldpreview, only hotpreview (fastest)
+  - 1920: Full PhotoEgg - standard coldpreview size
+  - Custom: e.g., 1024 for smaller preview
+  - Validation: If specified, must be >= 150 (hotpreview size)
 
 Key components (all in `src/imalink_core/`):
 - `validation/image_validator.py` - File validation (size, format, dimensions)
@@ -184,11 +196,14 @@ from imalink_core import process_image
 
 def import_from_user_disk(file_path: Path, backend_api):
     """Process file locally, send only metadata to backend"""
-    # Default: 1920px coldpreview
+    # Standard: 1920px coldpreview
+def import_from_user_disk(file_path: Path, backend_api):
+    """Process file locally, send only metadata to backend"""
+    # Default: Minimal PhotoEgg (hotpreview only, fastest)
     result = process_image(file_path)
     
-    # Or skip coldpreview to save bandwidth
-    # result = process_image(file_path, coldpreview_max_size=None)
+    # Or with coldpreview:
+    # result = process_image(file_path, coldpreview_size=1920)
     
     if result.success:
         # Send metadata to backend - file stays on user's disk
@@ -212,7 +227,7 @@ const response = await fetch('http://localhost:8765/v1/process', {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ 
     file_path: 'dsc_1234.jpg',  // or full path: C:/Photos/dsc_1234.jpg
-    coldpreview_max_size: 1920  // optional: default 1920, null to skip
+    coldpreview_size: null  // null (default) or 1920 for coldpreview
   })
 });
 

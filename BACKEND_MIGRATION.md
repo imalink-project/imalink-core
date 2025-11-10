@@ -2,7 +2,7 @@
 
 ## Context
 
-imalink-core har fått oppdatert API. Backend må støtte det nye PhotoEgg-formatet samtidig som bakoverkompatibilitet beholdes.
+imalink-core tilbyr én enkelt funksjon: konvertere en fysisk bildefil til PhotoEgg JSON med klart definert skjema. Backend må støtte PhotoEgg-formatet.
 
 ## Nåværende imalink-core API
 
@@ -10,16 +10,18 @@ imalink-core har fått oppdatert API. Backend må støtte det nye PhotoEgg-forma
 from pathlib import Path
 from imalink_core import process_image
 
-# Process image (returns ImportResult med CorePhoto)
-result = process_image(
-    Path("photo.jpg"),
-    coldpreview_max_size=1920  # Default 1920, None to skip
-)
+# Minimal PhotoEgg (hotpreview only, default - fastest)
+result = process_image(Path("photo.jpg"))
+
+# Full PhotoEgg with coldpreview
+result = process_image(Path("photo.jpg"), coldpreview_size=1920)
 
 if result.success:
-    photo_egg = result.photo.to_dict()  # CorePhoto → dict
-    # Send til backend
+    photo_egg = result.photo.to_dict()  # CorePhoto → PhotoEgg JSON
+    # Send to backend
 ```
+
+**Core's single responsibility**: `(filepath, coldpreview_size) → PhotoEgg JSON`
 
 ## PhotoEgg Structure (CorePhoto.to_dict())
 
@@ -28,7 +30,7 @@ if result.success:
     # Identity
     "hothash": "abc123...",  # SHA256 hash (unique ID)
     
-    # Hotpreview (150x150px, ~5-15KB)
+    # Hotpreview (150x150px, ~5-15KB) - ALWAYS INCLUDED
     "hotpreview_base64": "/9j/4AAQ...",
     "hotpreview_width": 150,
     "hotpreview_height": 113,
@@ -45,14 +47,14 @@ if result.success:
     
     # Timestamps
     "taken_at": "2024-11-10T14:30:00" | null,
-    "first_imported": null,  # Backend setter
-    "last_imported": null,   # Backend setter
+    "first_imported": null,  # Backend sets
+    "last_imported": null,   # Backend sets
     
     # Camera metadata (98% reliable)
     "camera_make": "Canon" | null,
     "camera_model": "EOS R5" | null,
     
-    # GPS (hvis tilgjengelig)
+    # GPS (if available)
     "gps_latitude": 59.9139 | null,
     "gps_longitude": 10.7522 | null,
     "has_gps": true | false,
@@ -65,21 +67,26 @@ if result.success:
     "lens_model": "RF 85mm F2" | null,
     "lens_make": "Canon" | null,
     
-    # Organization (backend setter)
+    # Organization (backend sets)
     "rating": null,
     "import_session_id": null,
     "has_raw_companion": false,
     
     # Backend fields
-    "id": null,      # Database ID (backend setter)
-    "user_id": null  # Owner (backend setter)
+    "id": null,      # Database ID (backend sets)
+    "user_id": null  # Owner (backend sets)
 }
 ```
 
-## Oppgave 1: Lag nytt endpoint POST /api/v1/photos/photoegg
+**Key points**:
+- Hotpreview: ALWAYS present
+- Coldpreview: OPTIONAL (can be null)
+- EXIF fields: Often null (missing EXIF is normal)
 
-**Inndata**: PhotoEgg (CorePhoto.to_dict())  
-**Utdata**: Lagret Photo med backend-ID
+## Task 1: Create endpoint POST /api/v1/photos/photoegg
+
+**Input**: PhotoEgg (CorePhoto.to_dict())  
+**Output**: Saved Photo with backend-ID
 
 ```python
 @router.post("/api/v1/photos/photoegg")
@@ -88,14 +95,14 @@ async def create_photo_from_egg(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Ny endpoint som tar imot PhotoEgg direkte fra imalink-core.
+    New endpoint that receives PhotoEgg directly from imalink-core.
     
-    Fordeler:
-    - Enklere: bare send result.photo.to_dict()
-    - Komplett: all EXIF data inkludert
-    - Fleksibel: coldpreview er optional
+    Advantages:
+    - Simpler: just send result.photo.to_dict()
+    - Complete: all EXIF data included
+    - Flexible: coldpreview is optional
     """
-    # 1. Valider PhotoEgg
+    # 1. Validate PhotoEgg
     if not photo_egg.get("hothash"):
         raise HTTPException(400, "Missing hothash")
     

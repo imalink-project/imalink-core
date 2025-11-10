@@ -16,39 +16,50 @@ from .validation.image_validator import ImageValidator
 
 def process_image(
     image_path: Path,
-    coldpreview_max_size: Optional[int] = 1920
+    coldpreview_size: Optional[int] = None
 ) -> ImportResult:
     """
-    High-level function to process a single image.
+    Convert physical image file to PhotoEgg JSON.
     
-    Does everything:
-    1. Validates file
-    2. Extracts metadata (basic + camera settings)
-    3. Generates previews (hot + optional cold)
-    4. Calculates hothash
-    5. Returns ImportResult with Photo object
+    Core's single responsibility: (filepath, coldpreview_size) → PhotoEgg
+    
+    PhotoEgg always includes:
+    - Hotpreview (150x150px thumbnail)
+    - Complete EXIF metadata
+    - Hothash (unique identifier)
+    
+    PhotoEgg optionally includes:
+    - Coldpreview (larger preview, e.g. 1920px)
     
     Args:
-        image_path: Path to image file
-        coldpreview_max_size: Maximum dimension for coldpreview in pixels.
-                              Default: 1920. Set to None to skip coldpreview.
+        image_path: Path to physical image file
+        coldpreview_size: Target size for coldpreview in pixels.
+                         None (default) = skip coldpreview, only hotpreview.
+                         If specified, must be >= 150. Typical value: 1920.
         
     Returns:
-        ImportResult with success status and data
+        ImportResult with PhotoEgg data (coldpreview_base64 may be None)
         
     Example:
         >>> from pathlib import Path
         >>> from imalink_core import process_image
         >>> 
-        >>> # Standard with default 1920px coldpreview
+        >>> # Minimal PhotoEgg (hotpreview only, default)
         >>> result = process_image(Path("photo.jpg"))
         >>> 
-        >>> # Custom size
-        >>> result = process_image(Path("photo.jpg"), coldpreview_max_size=1024)
+        >>> # Full PhotoEgg with 1920px coldpreview
+        >>> result = process_image(Path("photo.jpg"), coldpreview_size=1920)
         >>> 
-        >>> # Skip coldpreview (only hotpreview)
-        >>> result = process_image(Path("photo.jpg"), coldpreview_max_size=None)
+        >>> # Custom coldpreview size
+        >>> result = process_image(Path("photo.jpg"), coldpreview_size=1024)
     """
+    # Validate coldpreview_size if provided
+    if coldpreview_size is not None and coldpreview_size < 150:
+        return ImportResult(
+            success=False,
+            error=f"coldpreview_size must be >= 150 (hotpreview size), got {coldpreview_size}"
+        )
+    
     # Validate file
     is_valid, error = ImageValidator.validate_file(image_path)
     if not is_valid:
@@ -63,10 +74,10 @@ def process_image(
         hotpreview = PreviewGenerator.generate_hotpreview(image_path)
         
         # Generate coldpreview (optional)
-        if coldpreview_max_size is not None:
+        if coldpreview_size is not None:
             coldpreview = PreviewGenerator.generate_coldpreview(
                 image_path,
-                max_size=coldpreview_max_size
+                max_size=coldpreview_size
             )
             coldpreview_base64 = coldpreview.base64
             coldpreview_width = coldpreview.width
@@ -123,7 +134,7 @@ def process_image(
 
 def batch_process(
     image_paths: List[Path],
-    coldpreview_max_size: Optional[int] = 1920,
+    coldpreview_size: Optional[int] = None,
     progress_callback: Optional[Callable[[int, int, ImportResult], None]] = None
 ) -> List[ImportResult]:
     """
@@ -131,8 +142,9 @@ def batch_process(
     
     Args:
         image_paths: List of paths to image files
-        coldpreview_max_size: Maximum dimension for coldpreview in pixels.
-                              Default: 1920. Set to None to skip coldpreview.
+        coldpreview_size: Target size for coldpreview in pixels.
+                         None (default) = skip coldpreview, only hotpreview.
+                         If specified, must be >= 150. Typical value: 1920.
         progress_callback: Optional callback(current, total, result)
         
     Returns:
@@ -150,11 +162,11 @@ def batch_process(
         ...     else:
         ...         print(f"[{current}/{total}] ✗ {result.error}")
         >>> 
-        >>> # Standard with default 1920px coldpreview
+        >>> # Minimal PhotoEggs (hotpreview only, default)
         >>> results = batch_process(images, progress_callback=on_progress)
         >>> 
-        >>> # Custom size
-        >>> results = batch_process(images, coldpreview_max_size=1024, 
+        >>> # Full PhotoEggs with 1920px coldpreview
+        >>> results = batch_process(images, coldpreview_size=1920, 
         ...                         progress_callback=on_progress)
         >>> 
         >>> successful = [r for r in results if r.success]
@@ -164,7 +176,7 @@ def batch_process(
     total = len(image_paths)
     
     for i, path in enumerate(image_paths, 1):
-        result = process_image(path, coldpreview_max_size=coldpreview_max_size)
+        result = process_image(path, coldpreview_size=coldpreview_size)
         results.append(result)
         
         if progress_callback:
