@@ -11,7 +11,6 @@ from imalink_core import (
     PreviewGenerator,
     CorePhoto,
     ImageValidator,
-    process_image,
     __version__
 )
 
@@ -67,13 +66,13 @@ def test_photo_model():
     assert photo2.primary_filename == photo.primary_filename
 
 
-def test_process_image_nonexistent():
-    """Test process_image with non-existent file"""
-    result = process_image(Path("nonexistent.jpg"), coldpreview_size=1920)
+def test_validator_nonexistent():
+    """Test ImageValidator with non-existent file"""
+    is_valid, error = ImageValidator.validate_file(Path("nonexistent.jpg"))
     
-    assert not result.success
-    assert result.error is not None
-    assert "not found" in result.error.lower()
+    assert not is_valid
+    assert error is not None
+    assert "not found" in error.lower()
 
 
 # Skip actual image processing tests if no test images available

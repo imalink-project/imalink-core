@@ -1,13 +1,13 @@
 # ImaLink Core
 
-**Core image processing library for the ImaLink photo management ecosystem**
+**Image processing HTTP service for the ImaLink photo management ecosystem**
 
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## 🎯 Overview
 
-ImaLink Core is a platform-independent Python library that provides all image processing functionality for the ImaLink ecosystem:
+ImaLink Core is a FastAPI HTTP service that provides all image processing functionality for the ImaLink ecosystem:
 
 - **EXIF metadata extraction** - Reliable extraction of camera settings, GPS, timestamps
 - **Preview generation** - Generate hotpreview (150x150) and coldpreview (variable size) thumbnails
@@ -15,153 +15,160 @@ ImaLink Core is a platform-independent Python library that provides all image pr
 - **Image validation** - Format detection and file validation
 - **RAW format support** - Optional support for NEF, CR2, ARW, DNG files
 - **Base64 encoding** - All image data uses Base64 for JSON compatibility (industry standard)
+- **Language-agnostic** - HTTP API works with any programming language
 
-## 🚀 Installation
+## 🚀 Quick Start
+
+### Start the service
 
 ```bash
-# Basic installation
-pip install imalink-core
+# Clone repository
+git clone https://github.com/kjelkols/imalink-core.git
+cd imalink-core
 
-# With RAW format support
-pip install imalink-core[raw]
+# Install dependencies
+uv pip install -e .
+uv pip install fastapi uvicorn[standard]
 
-# Development installation
-pip install imalink-core[dev]
+# Start service
+uv run python -m service.main
 ```
 
-## 📖 Quick Start
+Service runs on: `http://localhost:8765`
 
-### Process a single image
+### Process an image via HTTP
 
-```python
-from pathlib import Path
-from imalink_core import process_image
-
-# Process image - extracts metadata, generates previews, calculates hothash
-result = process_image(Path("photo.jpg"))
-
-if result.success:
-    photo = result.photo  # CorePhoto object
-    print(f"Hothash: {photo.hothash}")
-    print(f"Hotpreview: {photo.hotpreview_width}x{photo.hotpreview_height}px")
-    print(f"Coldpreview: {photo.coldpreview_width}x{photo.coldpreview_height}px")
-    print(f"Taken at: {result.metadata.taken_at}")
-    print(f"Camera: {result.metadata.camera_make} {result.metadata.camera_model}")
-    print(f"GPS: {result.metadata.gps_latitude}, {result.metadata.gps_longitude}")
+```bash
+curl -X POST http://localhost:8765/v1/process \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "/photos/IMG_1234.jpg", "coldpreview_size": null}'
+```
     
     # Both previews are embedded in CorePhoto object as Base64 strings
     # Base64 is the industry standard for binary data in JSON
     if photo.hotpreview_base64:
-        print(f"Hotpreview ready (gallery): {len(photo.hotpreview_base64)} chars")
-    if photo.coldpreview_base64:
-        print(f"Coldpreview ready (detail view): {len(photo.coldpreview_base64)} chars")
-else:
-    print(f"Error: {result.error}")
+**Response (PhotoEgg JSON):**
+```json
+{
+  "hothash": "abc123...",
+  "hotpreview_base64": "/9j/4AAQSkZJRg...",
+  "hotpreview_width": 150,
+  "hotpreview_height": 150,
+  "coldpreview_base64": null,
+  "primary_filename": "IMG_1234.jpg",
+  "width": 4000,
+  "height": 3000,
+  "taken_at": "2024-07-15T14:30:00Z",
+  "camera_make": "Nikon",
+  "gps_latitude": 59.9139,
+  "has_gps": true
+}
 ```
 
-### Batch processing
+### Integration Examples
+
+<details>
+<summary><b>TypeScript/JavaScript</b></summary>
+
+```typescript
+async function processImage(filePath: string, coldpreviewSize?: number) {
+  const response = await fetch('http://localhost:8765/v1/process', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      file_path: filePath,
+      coldpreview_size: coldpreviewSize ?? null
+    })
+  });
+  
+  return await response.json();
+}
+
+// Minimal PhotoEgg (hotpreview only)
+const minimal = await processImage('/photos/IMG_1234.jpg');
+
+// Full PhotoEgg (with coldpreview)
+const full = await processImage('/photos/IMG_1234.jpg', 2560);
+```
+</details>
+
+<details>
+<summary><b>Python</b></summary>
 
 ```python
-from pathlib import Path
-from imalink_core import batch_process
+import requests
 
-# Find all images
-photos = list(Path("./photos").rglob("*.jpg"))
+def process_image(file_path: str, coldpreview_size: int | None = None):
+    response = requests.post(
+        'http://localhost:8765/v1/process',
+        json={
+            'file_path': file_path,
+            'coldpreview_size': coldpreview_size
+        }
+    )
+    response.raise_for_status()
+    return response.json()
 
-# Process with progress callback
-def on_progress(current, total, result):
-    if result.success:
-        print(f"[{current}/{total}] ✓ {result.photo.primary_filename}")
+# Minimal PhotoEgg
+photo = process_image('/photos/IMG_1234.jpg')
 
-results = batch_process(photos, progress_callback=on_progress)
-
-# Summary
-successful = [r for r in results if r.success]
-print(f"\nImported {len(successful)}/{len(results)} photos")
+# Full PhotoEgg
+photo = process_image('/photos/IMG_1234.jpg', coldpreview_size=2560)
 ```
+</details>
 
-### Extract metadata only
-
-```python
-from pathlib import Path
-from imalink_core import ExifExtractor
-
-# Extract basic metadata (98%+ reliable)
-metadata = ExifExtractor.extract_basic(Path("photo.jpg"))
-print(f"Taken: {metadata.taken_at}")
-print(f"Dimensions: {metadata.width}x{metadata.height}")
-print(f"Camera: {metadata.camera_make} {metadata.camera_model}")
-
-# Extract camera settings (70-90% reliable, best-effort)
-settings = ExifExtractor.extract_camera_settings(Path("photo.jpg"))
-print(f"ISO: {settings.iso}")
-print(f"Aperture: f/{settings.aperture}")
-print(f"Shutter: {settings.shutter_speed}")
-print(f"Focal length: {settings.focal_length}mm")
-```
-
-### Generate previews
-
-```python
-from pathlib import Path
-from imalink_core import PreviewGenerator
-
-# Generate both previews in one pass
-hotpreview, coldpreview = PreviewGenerator.generate_both(Path("photo.jpg"))
-
-print(f"Hotpreview: {hotpreview.width}x{hotpreview.height}px")
-print(f"Hothash: {hotpreview.hothash}")
-print(f"Coldpreview: {coldpreview.width}x{coldpreview.height}px")
-
-# Save previews
-with open("hot.jpg", "wb") as f:
-    f.write(hotpreview.bytes)
-with open("cold.jpg", "wb") as f:
-    f.write(coldpreview.bytes)
-```
+See `service/README.md` for more integration examples.
 
 ## 🏗️ Architecture
 
 ```
-imalink_core/
-├── metadata/        # EXIF extraction and GPS parsing
-├── preview/         # Preview generation and hothash calculation
-├── image/           # Image format detection and RAW handling
-├── models/          # Data models (Photo, ImageFile, etc.)
-├── validation/      # Image validation
-└── api.py           # High-level convenience functions
+imalink-core/
+├── service/         # FastAPI HTTP service
+├── src/imalink_core/
+│   ├── metadata/    # EXIF extraction and GPS parsing
+│   ├── preview/     # Preview generation and hothash calculation
+│   ├── image/       # Image format detection and RAW handling
+│   ├── models/      # Data models (CorePhoto, ImageFile, etc.)
+│   └── validation/  # Image validation
+└── tests/           # Test suite
 ```
 
-## 📊 Data Models
+## 📊 PhotoEgg Response
 
-### Photo Model
+HTTP API returns PhotoEgg JSON with complete image data:
 
-The `Photo` model is the canonical representation shared across the ImaLink ecosystem:
+```json
+{
+  "hothash": "abc123...",
+  "hotpreview_base64": "/9j/4AAQSkZJRg...",
+  "hotpreview_width": 150,
+  "hotpreview_height": 150,
+  "coldpreview_base64": null,
+  "primary_filename": "IMG_1234.jpg",
+  "width": 6000,
+  "height": 4000,
+  "taken_at": "2025-01-15T14:30:00Z",
+  "camera_make": "Nikon",
+  "camera_model": "D850",
+  "gps_latitude": 59.9139,
+  "gps_longitude": 10.7522,
+  "has_gps": true,
+  "iso": 400,
+  "aperture": 2.8,
+  "shutter_speed": "1/250",
+  "focal_length": 85.0,
+  "lens_model": "NIKKOR 85mm f/1.8G"
+}
+```
 
-```python
-from imalink_core.models import CorePhoto
+## 🐳 Docker Deployment
 
-photo = CorePhoto(
-    hothash="abc123...",
-    primary_filename="IMG_1234.jpg",
-    taken_at="2025-01-15T14:30:00Z",
-    width=6000,
-    height=4000,
-    camera_make="Nikon",
-    camera_model="D850",
-    gps_latitude=59.9139,
-    gps_longitude=10.7522,
-    has_gps=True,
-    iso=400,
-    aperture=2.8,
-    focal_length=85.0,
-)
+```bash
+# Build image
+docker build -f service/Dockerfile -t imalink-core-api .
 
-# Convert to dict for JSON serialization
-data = photo.to_dict()
-
-# Load from dict (e.g., API response)
-photo = CorePhoto.from_dict(data)
+# Run container
+docker run -p 8765:8765 -v /path/to/photos:/photos imalink-core-api
 ```
 
 ## 🧪 Testing

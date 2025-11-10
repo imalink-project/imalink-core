@@ -2,15 +2,15 @@
 
 ## Project Overview
 
-**imalink-core** is a platform-independent Python library (3.11+) serving as the **interface layer between physical image files and metadata structures**. It handles all image processing for the ImaLink photo management ecosystem, ensuring error-free data transfer between:
+**imalink-core** is a FastAPI HTTP service (Python 3.11+) serving as the **interface layer between physical image files and metadata structures**. It handles all image processing for the ImaLink photo management ecosystem, ensuring error-free data transfer between:
 
 - **Physical files** (user's own archive structure on disk)
-- **Local frontend** (Qt/desktop app for real file handling)
+- **HTTP clients** (backend, desktop apps, any language)
 - **Backend database** (metadata-only storage)
 
 This **decouples** the user's file organization from the database - files can remain in any structure on user's disk while metadata is centrally managed.
 
-**Critical distinction**: This is a **library**, not an application. Currently used as a Python library by Qt-frontend for client-side processing. Future architecture will expose this as PhotoEgg API service to support language-agnostic frontends (Next.js/Electron, etc.). Backend server-side import may be added later.
+**Critical distinction**: This is an **HTTP API service**, not a Python library. All integration happens via HTTP endpoints. The service runs locally (desktop apps) or as a microservice (backend infrastructure).
 
 CorePhoto contains ALL extractable data from images during processing. Consumers selectively persist data based on their needs.
 
@@ -50,34 +50,49 @@ Base64 is the universal standard for embedding binary data in JSON/APIs. No othe
 imalink-core serves as the **canonical processing layer** between:
 
 1. **User's file system** (any structure: folders, external drives, NAS)
-2. **Processing layer** (this library - extracts, validates, transforms)
+2. **Processing layer** (this service - extracts, validates, transforms)
 3. **Metadata database** (backend - stores only metadata + identifiers)
 
 **Key benefit**: Decoupling - users keep their own file organization while metadata is centrally managed and searchable.
 
-### Primary Usage Pattern: Local Frontend (Desktop Qt App)
+### Primary Usage Pattern: HTTP API
 
-```python
-# User selects file from their disk: C:/Photos/Vacation/IMG_1234.jpg
+**All clients (backend, desktop, web) call the same HTTP endpoint:**
 
+```bash
 # Minimal PhotoEgg (hotpreview only, default - fastest)
-result = process_image(Path(user_selected_file))
+curl -X POST http://localhost:8765/v1/process \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "/photos/IMG_1234.jpg", "coldpreview_size": null}'
 
 # Full PhotoEgg with coldpreview
-result = process_image(Path(user_selected_file), coldpreview_size=2560)
-
-# Smaller coldpreview
-result = process_image(Path(user_selected_file), coldpreview_size=1024)
-
-if result.success:
-    # Send CorePhoto metadata to backend API
-    response = api.upload_metadata(result.photo.to_dict())
-    
-    # Original file stays on user's disk
-    # Backend stores only metadata, not the file
+curl -X POST http://localhost:8765/v1/process \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "/photos/IMG_1234.jpg", "coldpreview_size": 2560}'
 ```
 
-**Future architecture**: PhotoEgg API service - wrap imalink-core in FastAPI to support language-agnostic frontends (Next.js/Electron, C#, Swift, etc.). Single endpoint: local file path + options → PhotoEgg JSON. This will replace direct library usage but maintain identical processing logic.
+**Response (PhotoEgg JSON):**
+```json
+{
+  "hothash": "abc123...",
+  "hotpreview_base64": "/9j/4AAQSkZJRg...",
+  "hotpreview_width": 150,
+  "hotpreview_height": 150,
+  "coldpreview_base64": null,
+  "primary_filename": "IMG_1234.jpg",
+  "width": 4000,
+  "height": 3000,
+  "taken_at": "2024-07-15T14:30:00Z",
+  "camera_make": "Nikon",
+  "gps_latitude": 59.9139,
+  "has_gps": true
+}
+```
+
+**Deployment scenarios:**
+- **Desktop apps**: Service runs on localhost:8765, processes local files
+- **Backend**: Service runs as microservice in infrastructure
+- **Development**: Run with `uv run python -m service.main`
 
 ### Three-Layer Model Architecture
 
@@ -104,24 +119,20 @@ Understanding the model separation is essential:
 
 ### Core Processing Pipeline
 
-```python
-# Core's single responsibility: (filepath, coldpreview_size) → PhotoEgg JSON
+**HTTP API endpoint: POST /v1/process**
 
-# Minimal PhotoEgg (default - hotpreview only)
-process_image(path)
-
-# Full PhotoEgg with coldpreview
-process_image(path, coldpreview_size=2560)
-
-# Smaller coldpreview
-process_image(path, coldpreview_size=1024)
-
-# Batch processing
-batch_process(paths, coldpreview_size=None, progress_callback=...)  # Minimal
-batch_process(paths, coldpreview_size=2560, progress_callback=...)  # Full
-
-Path → validate → extract EXIF → generate previews → calculate hothash → PhotoEgg
+Request:
+```json
+{
+  "file_path": "/photos/IMG_1234.jpg",
+  "coldpreview_size": null  // or 2560, 1024, etc.
+}
 ```
+
+Response: PhotoEgg JSON (see above)
+
+Internal processing flow:
+Path → validate → extract EXIF → generate previews → calculate hothash → PhotoEgg
 
 **API Parameters**:
 - `coldpreview_size`: Optional[int] = None
@@ -192,59 +203,24 @@ ruff check src/ tests/      # Lint
 mypy src/                   # Type check
 ```
 
-### Installing with uv
+### Running the Service
 ```bash
-# Install package in development mode
-uv pip install -e .
+# Start service
+uv run python -m service.main
 
-# With RAW support
-uv pip install -e ".[raw]"     # Adds rawpy for NEF/CR2/ARW/DNG
+# Or with auto-reload for development
+uv run uvicorn service.main:app --reload --port 8765
 
-# Development dependencies
-uv pip install -e ".[dev]"     # pytest, black, ruff, mypy
-
-# All extras
-uv pip install -e ".[all]"     # Everything
-
-# Sync from pyproject.toml (preferred)
-uv sync                         # Install all dependencies
-uv sync --extra dev            # Include dev dependencies
-uv sync --extra all            # Include all extras
+# Docker deployment
+docker build -f service/Dockerfile -t imalink-core-api .
+docker run -p 8765:8765 -v /photos:/photos imalink-core-api
 ```
 
 ## Integration Patterns
 
-### Current Integration: Qt Frontend (Direct Library Usage)
-```python
-# Qt-frontend imports imalink-core as Python library
-from pathlib import Path
-from imalink_core import process_image
-
-def import_from_user_disk(file_path: Path, backend_api):
-    """Process file locally, send only metadata to backend"""
-    # Default: Minimal PhotoEgg (hotpreview only, fastest)
-    result = process_image(file_path)
-    
-    # Or with coldpreview (specify size as needed):
-    # result = process_image(file_path, coldpreview_size=2560)
-    
-    if result.success:
-        # Send metadata to backend - file stays on user's disk
-        response = backend_api.create_photo({
-            "hothash": result.hothash,
-            "hotpreview_base64": result.hotpreview_base64,
-            "file_path": str(file_path),  # Track location on user's machine
-            **result.photo.to_dict()
-        })
-        
-        # User can now find this photo via backend search
-        # but file remains in: C:/Users/John/Photos/Vacation/IMG_1234.jpg
-```
-
-### Future Integration: PhotoEgg API (Language-Agnostic)
+### Desktop Integration (Electron/Tauri/Qt)
 ```typescript
-// Next.js/Electron frontend calls PhotoEgg service via HTTP
-// Single endpoint: file path + options → PhotoEgg JSON
+// JavaScript desktop app calls local service via HTTP
 const response = await fetch('http://localhost:8765/v1/process', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -257,10 +233,17 @@ const response = await fetch('http://localhost:8765/v1/process', {
 const photoEgg = await response.json();
 // {
 //   hothash: "abc123...",
-//   hotpreview: { base64: "...", width: 150, height: 150 },
-//   coldpreview: { base64: "...", width: 2560, height: 1920 },  // if requested
-//   metadata: { taken_at: "2024-07-15T14:30:00Z", camera: {...}, gps: {...} },
-//   file: { filename: "dsc_1234.jpg", size: 4567890, format: "jpeg" }
+//   hotpreview_base64: "...",
+//   hotpreview_width: 150,
+//   hotpreview_height: 150,
+//   coldpreview_base64: null,  // or base64 string if requested
+//   primary_filename: "dsc_1234.jpg",
+//   width: 4000,
+//   height: 3000,
+//   taken_at: "2024-07-15T14:30:00Z",
+//   camera_make: "Nikon",
+//   gps_latitude: 59.9139,
+//   has_gps: true
 // }
 ```
 
@@ -315,13 +298,13 @@ Same hothash can exist at multiple locations - backend tracks metadata, user tra
 
 ## Key Files to Reference
 
-- `src/imalink_core/api.py` - Primary entry point, study `process_image()` flow
+- `service/main.py` - FastAPI service entry point with POST /v1/process endpoint
+- `service/README.md` - API usage examples for all languages
+- `src/imalink_core/api.py` - Core processing function wrapped by service
 - `src/imalink_core/models/photo.py` - CorePhoto structure, to_dict/from_dict patterns
 - `PHOTO_MODEL_DESIGN.md` - Critical: explains 3-layer architecture from photographer's perspective
 - `MODEL_LAYERS_ANALYSIS.md` - Why CorePhoto is NOT the canonical API model
 - `BACKEND_MIGRATION.md` - Guide for integrating PhotoEgg API in backend server
-- `examples/simple_import.py` - Minimal usage example
-- `examples/batch_import.py` - Batch processing with progress callbacks
 
 ## Project-Specific Patterns
 

@@ -1,21 +1,22 @@
 """
-ImaLink Core - Image processing library for ImaLink ecosystem
+ImaLink Core - Image processing service for ImaLink ecosystem
 
-This library provides:
+This service provides HTTP API for:
 - EXIF metadata extraction
-- Preview generation (hotpreview 150x150, coldpreview 1920x1080)
+- Preview generation (hotpreview 150x150, coldpreview variable size)
 - Hothash calculation (SHA256)
 - Image validation
 - RAW format support (optional)
 
-Example:
-    >>> from imalink_core import process_image
-    >>> from pathlib import Path
-    >>> 
-    >>> result = process_image(Path("photo.jpg"))
-    >>> if result.success:
-    ...     print(f"Hothash: {result.hothash}")
-    ...     print(f"Taken at: {result.metadata.taken_at}")
+Run the service:
+    >>> uv run python -m service.main
+    
+API endpoint:
+    POST http://localhost:8765/v1/process
+    {
+      "file_path": "/photos/IMG_1234.jpg",
+      "coldpreview_size": null
+    }
 """
 
 from .version import __version__
@@ -34,9 +35,6 @@ from .models import CoreImageFile, ImportResult, CorePhoto, PhotoFormat
 
 # Validation
 from .validation import ImageValidator
-
-# High-level API
-from .api import batch_process, process_image
 
 __all__ = [
     # Version
@@ -60,7 +58,4 @@ __all__ = [
     "ImportResult",
     # Validation
     "ImageValidator",
-    # High-level API
-    "process_image",
-    "batch_process",
 ]
