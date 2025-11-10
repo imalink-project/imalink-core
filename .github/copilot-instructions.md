@@ -49,26 +49,34 @@ Base64 is the universal standard for embedding binary data in JSON/APIs. No othe
 
 imalink-core serves as the **canonical processing layer** between:
 
-1. **User's file system** (any structure: folders, external drives, NAS)
+1. **User's file system** (user selects files in frontend)
 2. **Processing layer** (this service - extracts, validates, transforms)
 3. **Metadata database** (backend - stores only metadata + identifiers)
 
 **Key benefit**: Decoupling - users keep their own file organization while metadata is centrally managed and searchable.
 
-### Primary Usage Pattern: HTTP API
+### Primary Usage Pattern: HTTP API with File Upload
 
-**All clients (backend, desktop, web) call the same HTTP endpoint:**
+**CRITICAL: Frontend uploads image files to core via multipart/form-data**
 
-```bash
-# Minimal PhotoEgg (hotpreview only, default - fastest)
-curl -X POST http://localhost:8765/v1/process \
-  -H "Content-Type: application/json" \
-  -d '{"file_path": "/photos/IMG_1234.jpg", "coldpreview_size": null}'
+Core does NOT access filesystem. Frontend reads files and uploads them.
 
-# Full PhotoEgg with coldpreview
-curl -X POST http://localhost:8765/v1/process \
-  -H "Content-Type: application/json" \
-  -d '{"file_path": "/photos/IMG_1234.jpg", "coldpreview_size": 2560}'
+```javascript
+// Frontend reads file from user's disk
+const fileInput = document.getElementById('fileInput');
+const file = fileInput.files[0];  // User selected IMG_1234.jpg
+
+// Upload to core (standard multipart/form-data)
+const formData = new FormData();
+formData.append('file', file);
+formData.append('coldpreview_size', 2560);  // optional
+
+const response = await fetch('http://localhost:8765/v1/process', {
+  method: 'POST',
+  body: formData  // ← Sends file BYTES, not filepath
+});
+
+const photoEgg = await response.json();
 ```
 
 **Response (PhotoEgg JSON):**
@@ -89,9 +97,16 @@ curl -X POST http://localhost:8765/v1/process \
 }
 ```
 
+**curl equivalent:**
+```bash
+curl -X POST http://localhost:8765/v1/process \
+  -F "file=@/photos/IMG_1234.jpg" \
+  -F "coldpreview_size=2560"
+```
+
 **Deployment scenarios:**
-- **Desktop apps**: Service runs on localhost:8765, processes local files
-- **Backend**: Service runs as microservice in infrastructure
+- **Desktop apps**: Service runs on localhost:8765, frontend uploads local files
+- **Backend**: Service can run on same server if needed
 - **Development**: Run with `uv run python -m service.main`
 
 ### Three-Layer Model Architecture
@@ -121,29 +136,43 @@ Understanding the model separation is essential:
 
 **HTTP API endpoint: POST /v1/process**
 
-Request:
-```json
-{
-  "file_path": "/photos/IMG_1234.jpg",
-  "coldpreview_size": null  // or 2560, 1024, etc.
-}
+**CRITICAL: Accepts multipart/form-data file upload, NOT JSON with filepath**
+
+Request (multipart/form-data):
+```bash
+curl -X POST http://localhost:8765/v1/process \
+  -F "file=@photo.jpg" \
+  -F "coldpreview_size=2560"  # optional
 ```
 
 Response: PhotoEgg JSON (see above)
 
 Internal processing flow:
-Path → validate → extract EXIF → generate previews → calculate hothash → PhotoEgg
+1. Receive uploaded file bytes (multipart/form-data)
+2. Open image from bytes (PIL.Image.open(BytesIO(bytes)))
+3. Apply EXIF rotation (ImageOps.exif_transpose)
+4. Extract EXIF metadata from bytes
+5. Generate previews from Image object
+6. Calculate hothash
+7. Return PhotoEgg JSON
 
 **API Parameters**:
-- `coldpreview_size`: Optional[int] = None
+- `file`: File (multipart/form-data) - REQUIRED
+- `coldpreview_size`: Optional[int] = None (form field)
   - None (default): Minimal PhotoEgg - skip coldpreview, only hotpreview (fastest)
   - Any size >= 150: Full PhotoEgg with coldpreview (e.g., 1024, 2560, or up to original size)
   - Validation: If specified, must be >= 150 (hotpreview size)
 
 Key components (all in `src/imalink_core/`):
-- `validation/image_validator.py` - File validation (size, format, dimensions)
-- `metadata/exif_extractor.py` - Two-tier extraction (BasicMetadata 98% reliable, CameraSettings 70-90%)
-- `preview/generator.py` - EXIF-aware thumbnails with rotation handling
+- `validation/image_validator.py` - File validation (size, format, dimensions) - DEPRECATED (validation happens on upload)
+- `metadata/exif_extractor.py` - Two-tier extraction with bytes support:
+  - `extract_basic_from_bytes(bytes)` - Extract from uploaded image bytes
+  - `extract_camera_settings_from_bytes(bytes)` - Camera settings from bytes
+  - Legacy file-based methods still exist for backward compatibility
+- `preview/generator.py` - EXIF-aware thumbnails with Image object support:
+  - `generate_hotpreview_from_image(img)` - Generate from PIL Image
+  - `generate_coldpreview_from_image(img)` - Generate from PIL Image
+  - Legacy file-based methods still exist for backward compatibility
 - `models/` - Data structures (CorePhoto, ImportResult, CoreImageFile)
 
 ### Hothash: The Unique Identifier
@@ -221,13 +250,18 @@ docker run -p 8765:8765 -v /photos:/photos imalink-core-api
 ### Desktop Integration (Electron/Tauri/Qt)
 ```typescript
 // JavaScript desktop app calls local service via HTTP
+// User selects file from their file system
+const fileInput = document.getElementById('fileInput') as HTMLInputElement;
+const file = fileInput.files[0];
+
+// Upload file to local core service
+const formData = new FormData();
+formData.append('file', file);
+formData.append('coldpreview_size', '2560');  // optional
+
 const response = await fetch('http://localhost:8765/v1/process', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ 
-    file_path: 'dsc_1234.jpg',  // or full path: C:/Photos/dsc_1234.jpg
-    coldpreview_size: null  // null (default) or specify size (e.g., 2560)
-  })
+  body: formData  // ← Standard file upload
 });
 
 const photoEgg = await response.json();
@@ -237,7 +271,7 @@ const photoEgg = await response.json();
 //   hotpreview_width: 150,
 //   hotpreview_height: 150,
 //   coldpreview_base64: null,  // or base64 string if requested
-//   primary_filename: "dsc_1234.jpg",
+//   primary_filename: "IMG_1234.jpg",
 //   width: 4000,
 //   height: 3000,
 //   taken_at: "2024-07-15T14:30:00Z",
@@ -245,6 +279,13 @@ const photoEgg = await response.json();
 //   gps_latitude: 59.9139,
 //   has_gps: true
 // }
+
+// Send PhotoEgg to remote backend
+await fetch('https://backend.com/api/photos', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(photoEgg)
+});
 ```
 
 ### Backend Integration
