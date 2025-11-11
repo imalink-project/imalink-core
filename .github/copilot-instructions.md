@@ -1,3 +1,59 @@
+# ImaLink Core — AI Coding Agent Quick Instructions
+
+Purpose: quick, actionable guidance for AI agents working on imalink-core (FastAPI image-processing service).
+
+- Project role: a stateless HTTP processing service that accepts image bytes (multipart/form-data) and returns a PhotoEgg JSON. Do NOT read filesystem paths—frontend uploads file bytes.
+- Key contract: all image binary fields are Base64 strings (e.g. `hotpreview_base64`, `coldpreview_base64`). This is non-negotiable.
+
+Quick commands
+- Start service (dev): `uv run uvicorn service.main:app --reload --port 8765` or `uv run python -m service.main`.
+- Run tests: `uv run pytest` (integration tests use FastAPI TestClient). Fixtures live in `tests/fixtures/images/`.
+- Format & lint: `uv run black src/ tests/` and `uv run ruff check src/ tests/`; type-check with `uv run mypy src/`.
+
+Essential patterns & files
+- API entry: `service/main.py` — POST `/v1/process` accepts `file` and optional `coldpreview_size` form field.
+- Core processing: `src/imalink_core/preview/generator.py` (hot/cold preview), `src/imalink_core/metadata/exif_extractor.py` (EXIF tiers), `src/imalink_core/models/photo.py` (CorePhoto dataclass).
+- Hothash: SHA256 of the hotpreview JPEG bytes (hotpreview is 150px square). Hothash generation is in preview generator — treat it as the primary identifier.
+
+Architecture essentials
+- Three layers: CorePhoto (processing) → PhotoEgg (API response) → Backend Photo (persistence). CorePhoto is NOT the API model.
+- Decoupling principle: user keeps files anywhere on disk, backend only stores metadata + hothash identifier.
+- EXIF reliability: BasicMetadata 98%+ (dimensions, GPS, camera), CameraSettings 70-90% (ISO, aperture) — always check Optional fields.
+- Dataclass pattern: all models have `to_dict()` / `from_dict()` for JSON serialization with datetime → ISO string conversion.
+
+Key docs for deep dives
+- `PHOTO_MODEL_DESIGN.md` — why 3-layer architecture exists (photographer's perspective).
+- `MODEL_LAYERS_ANALYSIS.md` — why CorePhoto ≠ canonical API model.
+- `BACKEND_MIGRATION.md` — how backends integrate PhotoEgg endpoint.
+
+Project-specific conventions
+- Package manager: use `uv` (e.g., `uv pip install`, `uv sync`) — do not use bare `pip` for reproducible installs.
+- Hot vs Cold preview: Hotpreview ALWAYS present (150px). Coldpreview is optional and must be >=150 if requested.
+- MIN_IMAGE_SIZE = 4 (images smaller than 4×4 are rejected as corrupt).
+- EXIF: always apply `ImageOps.exif_transpose()` before resizing.
+- Error handling: public APIs return (success, data/error) patterns; avoid raising exceptions as API surface behavior.
+
+Data shapes & examples
+- PhotoEgg highlights: `hothash`, `hotpreview_base64`, `hotpreview_width`, `hotpreview_height`, `coldpreview_base64|null`, `primary_filename`, `width`, `height`, `taken_at`, `camera_make`, `gps_latitude`, `has_gps`.
+- Upload example (curl):
+  `curl -X POST http://localhost:8765/v1/process -F "file=@/path/IMG.jpg" -F "coldpreview_size=2560"`
+
+Testing & fixtures
+- Tests: `tests/` (unit + integration). Integration tests validate multipart uploads and Base64 outputs.
+- Use included fixtures in `tests/fixtures/images/` for EXIF coverage.
+
+Where to look first (fast path)
+1. `service/main.py` — endpoint wiring and request validation.
+2. `src/imalink_core/preview/generator.py` — preview generation and hothash logic.
+3. `src/imalink_core/metadata/exif_extractor.py` — how EXIF is parsed and which fields are best-effort.
+
+Small editing rules for agents
+- Preserve Base64 contract and hotpreview/hothash semantics when modifying serialization.
+- Keep type hints on public APIs; follow line-length 100.
+- Add tests for behavior changes: happy path + one edge case (tiny image or missing EXIF).
+
+Questions / feedback
+If anything here is unclear or you'd like more detail (examples, tests to add, or CI commands), tell me which section to expand.
 # ImaLink Core - AI Coding Agent Instructions
 
 ## Project Overview
