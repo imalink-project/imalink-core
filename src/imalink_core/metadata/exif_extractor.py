@@ -147,7 +147,7 @@ class ExifExtractor:
                     if datetime_tag in exif:
                         dt_str = exif[datetime_tag]
                         if dt_str:
-                            result.taken_at = ExifExtractor._parse_datetime(dt_str)
+                            result.taken_at = ExifExtractor._standardize_datetime(dt_str)
                             break
                 
                 # Extract camera make/model

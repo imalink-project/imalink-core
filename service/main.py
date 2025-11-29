@@ -197,7 +197,7 @@ async def process_image_endpoint(
             height=metadata.height,
             gps_latitude=metadata.gps_latitude,
             gps_longitude=metadata.gps_longitude,
-            exif_dict=exif_dict if exif_dict else None
+            exif_dict=exif_dict  # Always return dict (empty or with data)
         )
         
         return photo
