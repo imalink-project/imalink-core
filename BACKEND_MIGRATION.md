@@ -1,8 +1,8 @@
-# Backend Migration: PhotoEgg API Integration
+# Backend Migration: PhotoCreateSchema API Integration
 
 ## Context
 
-imalink-core tilbyr én enkelt funksjon: konvertere en fysisk bildefil til PhotoEgg JSON med klart definert skjema. Backend må støtte PhotoEgg-formatet.
+imalink-core tilbyr én enkelt funksjon: konvertere en fysisk bildefil til PhotoCreateSchema JSON med klart definert skjema. Backend må støtte PhotoCreateSchema-formatet.
 
 ## Nåværende imalink-core API
 
@@ -10,20 +10,20 @@ imalink-core tilbyr én enkelt funksjon: konvertere en fysisk bildefil til Photo
 from pathlib import Path
 from imalink_core import process_image
 
-# Minimal PhotoEgg (hotpreview only, default - fastest)
+# Minimal response (hotpreview only, default - fastest)
 result = process_image(Path("photo.jpg"))
 
-# Full PhotoEgg with coldpreview (specify size)
+# Full response with coldpreview (specify size)
 result = process_image(Path("photo.jpg"), coldpreview_size=2560)
 
 if result.success:
-    photo_egg = result.photo.to_dict()  # CorePhoto → PhotoEgg JSON
+    photo_data = result.photo.to_dict()  # CorePhoto → PhotoCreateSchema JSON
     # Send to backend
 ```
 
-**Core's single responsibility**: `(filepath, coldpreview_size) → PhotoEgg JSON`
+**Core's single responsibility**: `(filepath, coldpreview_size) → PhotoCreateSchema JSON`
 
-## PhotoEgg Structure (CorePhoto.to_dict())
+## PhotoCreateSchema Structure (CorePhoto.to_dict())
 
 **CRITICAL: All image data uses Base64 encoding**
 - Base64 is the industry standard for binary data in JSON
@@ -90,32 +90,32 @@ if result.success:
 - Coldpreview: OPTIONAL (can be null)
 - EXIF fields: Often null (missing EXIF is normal)
 
-## Task 1: Create endpoint POST /api/v1/photos/photoegg
+## Task 1: Create endpoint POST /api/v1/photos
 
-**Input**: PhotoEgg (CorePhoto.to_dict())  
+**Input**: PhotoCreateSchema (CorePhoto.to_dict())  
 **Output**: Saved Photo with backend-ID
 
 ```python
-@router.post("/api/v1/photos/photoegg")
-async def create_photo_from_egg(
-    photo_egg: dict,
+@router.post("/api/v1/photos")
+async def create_photo_from_schema(
+    photo_data: dict,
     current_user: User = Depends(get_current_user)
 ):
     """
-    New endpoint that receives PhotoEgg directly from imalink-core.
+    New endpoint that receives PhotoCreateSchema directly from imalink-core.
     
     Advantages:
     - Simpler: just send result.photo.to_dict()
     - Complete: all EXIF data included
     - Flexible: coldpreview is optional
     """
-    # 1. Validate PhotoEgg
-    if not photo_egg.get("hothash"):
+    # 1. Validate PhotoCreateSchema
+    if not photo_data.get("hothash"):
         raise HTTPException(400, "Missing hothash")
     
     # 2. Sjekk om photo finnes (duplicate detection)
     existing = await db.get_photo_by_hothash(
-        photo_egg["hothash"], 
+        photo_data["hothash"], 
         current_user.id
     )
     if existing:
@@ -125,29 +125,29 @@ async def create_photo_from_egg(
     # Store in DB eller blob storage
     
     # 4. Lagre coldpreview (hvis present)
-    if photo_egg.get("coldpreview_base64"):
+    if photo_data.get("coldpreview_base64"):
         # Store på disk/S3/cache eller skip
         pass
     
     # 5. Opprett Photo i database
     db_photo = Photo(
-        hothash=photo_egg["hothash"],
+        hothash=photo_data["hothash"],
         user_id=current_user.id,
-        primary_filename=photo_egg["primary_filename"],
-        taken_at=photo_egg.get("taken_at"),
-        width=photo_egg["width"],
-        height=photo_egg["height"],
-        camera_make=photo_egg.get("camera_make"),
-        camera_model=photo_egg.get("camera_model"),
-        gps_latitude=photo_egg.get("gps_latitude"),
-        gps_longitude=photo_egg.get("gps_longitude"),
-        has_gps=photo_egg.get("has_gps", False),
-        iso=photo_egg.get("iso"),
-        aperture=photo_egg.get("aperture"),
-        shutter_speed=photo_egg.get("shutter_speed"),
-        focal_length=photo_egg.get("focal_length"),
-        lens_model=photo_egg.get("lens_model"),
-        lens_make=photo_egg.get("lens_make"),
+        primary_filename=photo_data["primary_filename"],
+        taken_at=photo_data.get("taken_at"),
+        width=photo_data["width"],
+        height=photo_data["height"],
+        camera_make=photo_data.get("camera_make"),
+        camera_model=photo_data.get("camera_model"),
+        gps_latitude=photo_data.get("gps_latitude"),
+        gps_longitude=photo_data.get("gps_longitude"),
+        has_gps=photo_data.get("has_gps", False),
+        iso=photo_data.get("iso"),
+        aperture=photo_data.get("aperture"),
+        shutter_speed=photo_data.get("shutter_speed"),
+        focal_length=photo_data.get("focal_length"),
+        lens_model=photo_data.get("lens_model"),
+        lens_make=photo_data.get("lens_make"),
         # Backend legger til:
         first_imported=datetime.utcnow(),
         last_imported=datetime.utcnow(),
@@ -163,16 +163,16 @@ async def create_photo_from_egg(
 
 ### A. Lagre i database (enklest, men stor database)
 ```python
-photo.coldpreview_base64 = photo_egg.get("coldpreview_base64")
+photo.coldpreview_base64 = photo_data.get("coldpreview_base64")
 ```
 - ✅ Enklest å implementere
 - ❌ Database blir stor (~200KB per foto)
 
 ### B. Lagre på disk (balansert)
 ```python
-if photo_egg.get("coldpreview_base64"):
-    coldpreview_path = f"storage/coldpreviews/{photo_egg['hothash']}.jpg"
-    save_base64_to_file(coldpreview_path, photo_egg["coldpreview_base64"])
+if photo_data.get("coldpreview_base64"):
+    coldpreview_path = f"storage/coldpreviews/{photo_data['hothash']}.jpg"
+    save_base64_to_file(coldpreview_path, photo_data["coldpreview_base64"])
     photo.coldpreview_path = coldpreview_path  # Lagre path i DB
 ```
 - ✅ Database forblir liten
@@ -181,9 +181,9 @@ if photo_egg.get("coldpreview_base64"):
 
 ### C. Lagre i S3/blob storage (produksjonsklart)
 ```python
-if photo_egg.get("coldpreview_base64"):
-    s3_key = f"coldpreviews/{photo_egg['hothash']}.jpg"
-    await s3.upload_base64(s3_key, photo_egg["coldpreview_base64"])
+if photo_data.get("coldpreview_base64"):
+    s3_key = f"coldpreviews/{photo_data['hothash']}.jpg"
+    await s3.upload_base64(s3_key, photo_data["coldpreview_base64"])
     photo.coldpreview_s3_key = s3_key
 ```
 - ✅ Skalerbart
@@ -211,7 +211,7 @@ Legg til deprecation warning:
 @router.post("/api/v1/photos")
 async def create_photo_legacy(...):
     # Gammelt endpoint
-    response.headers["X-API-Deprecation"] = "Use /api/v1/photos/photoegg"
+    response.headers["X-API-Deprecation"] = "Use /api/v1/photos"
     response.headers["X-API-Sunset"] = "2026-01-01"
     # ... existing logic
 ```
@@ -222,9 +222,9 @@ async def create_photo_legacy(...):
 from pydantic import BaseModel, Field
 from typing import Optional
 
-class PhotoEggSchema(BaseModel):
+class PhotoCreateSchema(BaseModel):
     """
-    Schema for PhotoEgg (imalink-core output)
+    Schema for PhotoCreateSchema (imalink-core output)
     
     CRITICAL: Image fields use Base64 encoding
     - hotpreview_base64: Base64-encoded JPEG string (NOT bytes)
@@ -271,12 +271,12 @@ class PhotoEggSchema(BaseModel):
 
 Bruk i endpoint:
 ```python
-@router.post("/api/v1/photos/photoegg")
-async def create_photo_from_egg(
-    photo_egg: PhotoEggSchema,  # Type-safe validation
+@router.post("/api/v1/photos")
+async def create_photo_from_schema(
+    photo_data: PhotoCreateSchema,  # Type-safe validation
     current_user: User = Depends(get_current_user)
 ):
-    # photo_egg er nå validert og type-safe
+    # photo_data er nå validert og type-safe
     pass
 ```
 
@@ -284,8 +284,8 @@ async def create_photo_from_egg(
 
 ### Fase 1: Nytt endpoint (INGEN breaking changes)
 ```
-✓ POST /api/v1/photos/photoegg (ny - støtter PhotoEgg)
-✓ POST /api/v1/photos (gammel - fortsatt fungerer)
+✓ POST /api/v1/photos (ny - støtter PhotoCreateSchema)
+✓ POST /api/v1/photos/legacy (gammel - fortsatt fungerer)
 ```
 
 ### Fase 2: Oppdater Qt-frontend
@@ -294,7 +294,7 @@ async def create_photo_from_egg(
 result = process_image(file_path)
 if result.success:
     response = await api.post(
-        "/api/v1/photos/photoegg",
+        "/api/v1/photos",
         result.photo.to_dict()
     )
 ```
@@ -313,14 +313,14 @@ if result.success:
 
 ## Testing Checklist
 
-Test at PhotoEgg endpoint håndterer:
+Test at PhotoCreateSchema endpoint håndterer:
 
-- [ ] Komplett PhotoEgg (med coldpreview)
-- [ ] PhotoEgg uten coldpreview (coldpreview_base64=null)
-- [ ] PhotoEgg med GPS
-- [ ] PhotoEgg uten GPS
-- [ ] PhotoEgg med kamerainnstillinger
-- [ ] PhotoEgg uten kamerainnstillinger (null values OK)
+- [ ] Komplett PhotoCreateSchema (med coldpreview)
+- [ ] PhotoCreateSchema uten coldpreview (coldpreview_base64=null)
+- [ ] PhotoCreateSchema med GPS
+- [ ] PhotoCreateSchema uten GPS
+- [ ] PhotoCreateSchema med kamerainnstillinger
+- [ ] PhotoCreateSchema uten kamerainnstillinger (null values OK)
 - [ ] Duplicate detection (samme hothash)
 - [ ] Invalid hothash (feil lengde, format)
 - [ ] Missing required fields
@@ -336,8 +336,8 @@ Test at PhotoEgg endpoint håndterer:
 ## Eksempel Test Data
 
 ```python
-# Komplett PhotoEgg
-complete_egg = {
+# Komplett PhotoCreateSchema
+complete_data = {
     "hothash": "abc123" * 10 + "abcd",  # 64 chars
     "hotpreview_base64": "...",
     "hotpreview_width": 150,
@@ -362,8 +362,8 @@ complete_egg = {
     "lens_make": "Canon",
 }
 
-# Minimal PhotoEgg (kun påkrevde felter)
-minimal_egg = {
+# Minimal PhotoCreateSchema (kun påkrevde felter)
+minimal_data = {
     "hothash": "xyz789" * 10 + "wxyz",
     "hotpreview_base64": "...",
     "hotpreview_width": 150,
@@ -379,7 +379,7 @@ minimal_egg = {
 
 ## Viktige Notater
 
-**PhotoEgg er IKKE en erstatning for hele backend Photo-modellen.**
+**PhotoCreateSchema er IKKE en erstatning for hele backend Photo-modellen.**
 
 Backend legger til:
 - `user_id` (eierskap)
@@ -388,15 +388,15 @@ Backend legger til:
 - `import_session_id` (tracking)
 - `first_imported`, `last_imported` (timestamps)
 
-**PhotoEgg = rådata fra bildefil**  
-**Backend Photo = PhotoEgg + brukerdata + organisering**
+**PhotoCreateSchema = rådata fra bildefil**  
+**Backend Photo = PhotoCreateSchema + brukerdata + organisering**
 
 ## Neste Steg
 
-1. [ ] Implementer `POST /api/v1/photos/photoegg` endpoint
+1. [ ] Implementer `POST /api/v1/photos` endpoint
 2. [ ] Velg coldpreview storage strategy
-3. [ ] Lag Pydantic schema for PhotoEggSchema
+3. [ ] Lag Pydantic schema for PhotoCreateSchema
 4. [ ] Skriv tester for nytt endpoint
-5. [ ] Test med ekte PhotoEgg data fra imalink-core
+5. [ ] Test med ekte PhotoCreateSchema data fra imalink-core
 6. [ ] Oppdater Qt-frontend til å bruke nytt endpoint
 7. [ ] Deprecate gammelt endpoint (6+ måneders varsel)

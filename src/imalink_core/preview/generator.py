@@ -22,7 +22,7 @@ class HotPreview:
     Attributes:
         bytes: Raw JPEG bytes (no EXIF metadata) - for internal processing
         base64: Base64-encoded string - REQUIRED for JSON/API transmission
-                This is the ONLY format for image data in PhotoEgg JSON
+                This is the ONLY format for image data in PhotoCreateSchema JSON
         hothash: SHA256 hex digest of bytes (unique identifier)
         width: Actual width in pixels
         height: Actual height in pixels
@@ -42,7 +42,7 @@ class ColdPreview:
     Attributes:
         bytes: Raw JPEG bytes (no EXIF metadata) - for internal processing
         base64: Base64-encoded string - REQUIRED for JSON/API transmission
-                This is the ONLY format for image data in PhotoEgg JSON
+                This is the ONLY format for image data in PhotoCreateSchema JSON
         width: Actual width in pixels
         height: Actual height in pixels
     """

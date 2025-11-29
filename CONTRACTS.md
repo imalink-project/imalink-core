@@ -15,7 +15,7 @@ This document defines the HTTP API contracts for imalink-core service.
 
 ### 1. Process Image - `POST /v1/process`
 
-**Purpose**: Upload image file, receive PhotoEgg JSON with previews and metadata.
+**Purpose**: Upload image file, receive PhotoCreateSchema JSON with previews and metadata.
 
 **Request**:
 - **Method**: `POST`
@@ -50,7 +50,7 @@ const response = await fetch('http://localhost:8765/v1/process', {
   body: formData
 });
 
-const photoEgg = await response.json();
+const photoData = await response.json();
 ```
 
 **Success Response** (`200 OK`):
@@ -134,9 +134,9 @@ curl http://localhost:8765/health
 
 ---
 
-## PhotoEgg JSON Schema
+## PhotoCreateSchema JSON Schema
 
-The PhotoEgg is the canonical output format from imalink-core.
+PhotoCreateSchema is the canonical output format from imalink-core.
 
 ### Field Definitions
 
@@ -247,7 +247,7 @@ Consumer photos often lack camera settings. Always check for `null`.
 
 ## Base64 Encoding
 
-**CRITICAL**: ALL image data in PhotoEgg uses Base64 encoding.
+**CRITICAL**: ALL image data in PhotoCreateSchema uses Base64 encoding.
 
 ### Why Base64?
 - JSON cannot contain binary data (raw bytes)
@@ -255,27 +255,27 @@ Consumer photos often lack camera settings. Always check for `null`.
 - Base64 converts binary → text for JSON transmission
 - Industry standard for embedding binary in JSON/APIs
 
-### Usage in PhotoEgg
+### Usage in PhotoCreateSchema
 
 ```javascript
-// Receive PhotoEgg
+// Receive photo data
 const response = await fetch('/v1/process', {
   method: 'POST',
   body: formData
 });
-const photoEgg = await response.json();
+const photoData = await response.json();
 
 // hotpreview_base64 is a STRING (not bytes)
-console.log(typeof photoEgg.hotpreview_base64);  // "string"
+console.log(typeof photoData.hotpreview_base64);  // "string"
 
 // Decode Base64 to display image
 const img = document.createElement('img');
-img.src = `data:image/jpeg;base64,${photoEgg.hotpreview_base64}`;
+img.src = `data:image/jpeg;base64,${photoData.hotpreview_base64}`;
 document.body.appendChild(img);
 
 // Or decode to bytes for storage
-const bytes = atob(photoEgg.hotpreview_base64);  // Browser
-const buffer = Buffer.from(photoEgg.hotpreview_base64, 'base64');  // Node.js
+const bytes = atob(photoData.hotpreview_base64);  // Browser
+const buffer = Buffer.from(photoData.hotpreview_base64, 'base64');  // Node.js
 ```
 
 ### Validation
@@ -336,9 +336,9 @@ with open('photo.jpg', 'rb') as f:
         data={'coldpreview_size': '2560'}
     )
 
-photo_egg = response.json()
-print(f"Hothash: {photo_egg['hothash']}")
-print(f"Taken at: {photo_egg['taken_at']}")
+photo_data = response.json()
+print(f"Hothash: {photo_data['hothash']}")
+print(f"Taken at: {photo_data['taken_at']}")
 ```
 
 ### JavaScript (Browser)
@@ -358,18 +358,18 @@ const response = await fetch('http://localhost:8765/v1/process', {
   body: formData
 });
 
-const photoEgg = await response.json();
+const photoData = await response.json();
 
 // Display hotpreview
 const img = document.createElement('img');
-img.src = `data:image/jpeg;base64,${photoEgg.hotpreview_base64}`;
+img.src = `data:image/jpeg;base64,${photoData.hotpreview_base64}`;
 document.body.appendChild(img);
 
 // Send to backend
 await fetch('https://backend.com/api/photos', {
   method: 'POST',
   headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify(photoEgg)
+  body: JSON.stringify(photoData)
 });
 ```
 
@@ -388,8 +388,8 @@ const response = await axios.post('http://localhost:8765/v1/process', formData, 
   headers: formData.getHeaders()
 });
 
-const photoEgg = response.data;
-console.log('Hothash:', photoEgg.hothash);
+const photoData = response.data;
+console.log('Hothash:', photoData.hothash);
 ```
 
 ---
@@ -462,7 +462,7 @@ curl -X POST http://localhost:8765/v1/process \
 ### v1.0.0 (Current)
 - Initial release
 - POST /v1/process endpoint
-- PhotoEgg JSON format
+- PhotoCreateSchema JSON format
 - Multipart/form-data file upload
 - Image size validation (MIN_IMAGE_SIZE = 4)
 - Optional coldpreview generation

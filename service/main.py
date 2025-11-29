@@ -20,7 +20,7 @@ from PIL import Image, ImageOps
 # Initialize FastAPI app
 app = FastAPI(
     title="ImaLink Core API",
-    description="Image processing service - converts images to PhotoEgg JSON",
+    description="Image processing service - converts images to PhotoCreateSchema JSON",
     version="1.0.0",
 )
 
@@ -57,21 +57,21 @@ async def process_image_endpoint(
     coldpreview_size: Optional[int] = Form(None, description="Size for coldpreview (e.g., 2560). None = skip coldpreview. Must be >= 150.")
 ):
     """
-    Process uploaded image file and return PhotoEgg JSON.
+    Process uploaded image file and return PhotoCreateSchema JSON.
     
-    PhotoEgg is the canonical output format: a JSON object containing all extractable
+    PhotoCreateSchema is the canonical output format: a JSON object containing all extractable
     image data (metadata, previews, hothash) with Base64-encoded JPEG previews.
     
     Upload image via multipart/form-data (standard file upload).
     
-    Core's single responsibility: (image file, coldpreview_size) → PhotoEgg JSON
+    Core's single responsibility: (image file, coldpreview_size) → PhotoCreateSchema JSON
     
-    PhotoEgg always includes:
+    Response always includes:
     - Hotpreview (150x150px thumbnail) as Base64-encoded JPEG
     - Complete EXIF metadata (timestamps, GPS, camera info)
     - Hothash (SHA256 of hotpreview - unique identifier)
     
-    PhotoEgg optionally includes:
+    PhotoCreateSchema optionally includes:
     - Coldpreview (larger preview) as Base64-encoded JPEG
     
     Args:
@@ -79,7 +79,7 @@ async def process_image_endpoint(
         coldpreview_size: Optional size for coldpreview (form field)
         
     Returns:
-        PhotoCreateSchema: PhotoEgg JSON validated by Pydantic model
+        PhotoCreateSchema: Photo data JSON validated by Pydantic model
         
     Raises:
         HTTPException 400: If file processing fails

@@ -38,11 +38,11 @@ Service runs on: `http://localhost:8765`
 ### Upload an image
 
 ```bash
-# Minimal PhotoEgg (hotpreview only)
+# Minimal response (hotpreview only)
 curl -X POST http://localhost:8765/v1/process \
   -F "file=@photo.jpg"
 
-# Full PhotoEgg (with coldpreview)
+# Full response (with coldpreview)
 curl -X POST http://localhost:8765/v1/process \
   -F "file=@photo.jpg" \
   -F "coldpreview_size=2560"
@@ -51,7 +51,7 @@ curl -X POST http://localhost:8765/v1/process \
     # Both previews are embedded in CorePhoto object as Base64 strings
     # Base64 is the industry standard for binary data in JSON
     if photo.hotpreview_base64:
-**Response (PhotoEgg JSON):**
+**Response (PhotoCreateSchema JSON):**
 ```json
 {
   "hothash": "abc123...",
@@ -89,7 +89,7 @@ const response = await fetch('http://localhost:8765/v1/process', {
   body: formData
 });
 
-const photoEgg = await response.json();
+const photoData = await response.json();
 ```
 </details>
 
@@ -109,7 +109,7 @@ with open('photo.jpg', 'rb') as f:
         data=data
     )
     
-photo_egg = response.json()
+photo_data = response.json()
 ```
 </details>
 
@@ -129,9 +129,9 @@ imalink-core/
 └── tests/           # Test suite
 ```
 
-## 📊 PhotoEgg Response
+## 📊 PhotoCreateSchema Response
 
-HTTP API returns PhotoEgg JSON with complete image data:
+HTTP API returns PhotoCreateSchema JSON with complete image data:
 
 ```json
 {

@@ -2,7 +2,7 @@
 
 Purpose: quick, actionable guidance for AI agents working on imalink-core (FastAPI image-processing service).
 
-- Project role: a stateless HTTP processing service that accepts image bytes (multipart/form-data) and returns a PhotoEgg JSON. Do NOT read filesystem paths—frontend uploads file bytes.
+- Project role: a stateless HTTP processing service that accepts image bytes (multipart/form-data) and returns a PhotoCreateSchema JSON. Do NOT read filesystem paths—frontend uploads file bytes.
 - Key contract: all image binary fields are Base64 strings (e.g. `hotpreview_base64`, `coldpreview_base64`). This is non-negotiable.
 
 Quick commands
@@ -16,8 +16,8 @@ Essential patterns & files
 - Hothash: SHA256 of the hotpreview JPEG bytes (hotpreview is 150px square). Hothash generation is in preview generator — treat it as the primary identifier.
 
 Architecture essentials
-- Three layers: CorePhoto (processing) → PhotoEgg (API response JSON) → Backend Photo (persistence). CorePhoto is NOT the API model.
-- PhotoEgg definition: JSON object returned from `/v1/process`. PhotoEggResponse is the Pydantic validation model.
+- Three layers: CorePhoto (processing) → PhotoCreateSchema (API response JSON) → Backend Photo (persistence). CorePhoto is NOT the API model.
+- PhotoCreateSchema definition: JSON object returned from `/v1/process`. PhotoCreateSchema is the Pydantic validation model from imalink-schemas library.
 - Decoupling principle: user keeps files anywhere on disk, backend only stores metadata + hothash identifier.
 - EXIF reliability: BasicMetadata 98%+ (dimensions, GPS, camera), CameraSettings 70-90% (ISO, aperture) — always check Optional fields.
 - Dataclass pattern: all models have `to_dict()` / `from_dict()` for JSON serialization with datetime → ISO string conversion.
@@ -25,7 +25,7 @@ Architecture essentials
 Key docs for deep dives
 - `PHOTO_MODEL_DESIGN.md` — why 3-layer architecture exists (photographer's perspective).
 - `MODEL_LAYERS_ANALYSIS.md` — why CorePhoto ≠ canonical API model.
-- `BACKEND_MIGRATION.md` — how backends integrate PhotoEgg endpoint.
+- `BACKEND_MIGRATION.md` — how backends integrate PhotoCreateSchema API endpoint.
 
 Project-specific conventions
 - Package manager: use `uv` (e.g., `uv pip install`, `uv sync`) — do not use bare `pip` for reproducible installs.
@@ -35,7 +35,7 @@ Project-specific conventions
 - Error handling: public APIs return (success, data/error) patterns; avoid raising exceptions as API surface behavior.
 
 Data shapes & examples
-- PhotoEgg: JSON object with `hothash`, `hotpreview_base64`, `hotpreview_width`, `hotpreview_height`, `coldpreview_base64|null`, `primary_filename`, `width`, `height`, `taken_at` (ISO 8601), `camera_make`, `gps_latitude` (decimal degrees), `has_gps`.
+- PhotoCreateSchema: JSON object with `hothash`, `hotpreview_base64`, `hotpreview_width`, `hotpreview_height`, `coldpreview_base64|null`, `primary_filename`, `width`, `height`, `taken_at` (ISO 8601), `camera_make`, `gps_latitude` (decimal degrees), `has_gps`.
 - Upload example (curl):
   `curl -X POST http://localhost:8765/v1/process -F "file=@/path/IMG.jpg" -F "coldpreview_size=2560"`
 
@@ -75,7 +75,7 @@ CorePhoto contains ALL extractable data from images during processing. Consumers
 
 ## CRITICAL: Base64 Encoding for Image Data
 
-**ALL image data in PhotoEgg uses Base64 encoding - NO EXCEPTIONS**
+**ALL image data in PhotoCreateSchema uses Base64 encoding - NO EXCEPTIONS**
 
 ### Why Base64?
 - JSON can only contain text (strings, numbers, booleans, null, objects, arrays)
@@ -133,10 +133,10 @@ const response = await fetch('http://localhost:8765/v1/process', {
   body: formData  // ← Sends file BYTES, not filepath
 });
 
-const photoEgg = await response.json();
+const photoData = await response.json();
 ```
 
-**Response (PhotoEgg JSON):**
+**Response (PhotoCreateSchema JSON):**
 ```json
 {
   "hothash": "abc123...",
@@ -182,7 +182,7 @@ Understanding the model separation is essential:
    - Keeps hotpreview (small ~5-15KB), handles coldpreview based on storage strategy
    - Adds user organization (rating, tags, albums)
 
-3. **Coldpreview Strategy** - Optional in PhotoEgg
+3. **Coldpreview Strategy** - Optional in PhotoCreateSchema
    - CorePhoto can include coldpreview during processing (~100-200KB)
    - Default: skip coldpreview (None) for fastest processing
    - Explicit choice: include coldpreview when needed
@@ -202,7 +202,7 @@ curl -X POST http://localhost:8765/v1/process \
   -F "coldpreview_size=2560"  # optional
 ```
 
-Response: PhotoEgg JSON (see above)
+Response: PhotoCreateSchema JSON (see above)
 
 Internal processing flow:
 1. Receive uploaded file bytes (multipart/form-data)
@@ -211,13 +211,13 @@ Internal processing flow:
 4. Extract EXIF metadata from bytes
 5. Generate previews from Image object
 6. Calculate hothash
-7. Return PhotoEgg JSON
+7. Return PhotoCreateSchema JSON
 
 **API Parameters**:
 - `file`: File (multipart/form-data) - REQUIRED
 - `coldpreview_size`: Optional[int] = None (form field)
-  - None (default): Minimal PhotoEgg - skip coldpreview, only hotpreview (fastest)
-  - Any size >= 150: Full PhotoEgg with coldpreview (e.g., 1024, 2560, or up to original size)
+  - None (default): Minimal response - skip coldpreview, only hotpreview (fastest)
+  - Any size >= 150: Full response with coldpreview (e.g., 1024, 2560, or up to original size)
   - Validation: If specified, must be >= 150 (hotpreview size)
 
 Key components (all in `src/imalink_core/`):
@@ -290,7 +290,7 @@ pytest --cov=imalink_core --cov-report=html  # With coverage
 **Test Structure:**
 - `tests/test_service_api.py` - **Integration tests** for FastAPI `/v1/process` endpoint
   - File upload via multipart/form-data
-  - PhotoEgg JSON response validation
+  - PhotoCreateSchema JSON response validation
   - Error handling (invalid files, tiny images, bad parameters)
   - Base64 encoding validation
 - `tests/test_preview_generation.py` - Preview generation + hothash
@@ -337,7 +337,7 @@ const response = await fetch('http://localhost:8765/v1/process', {
   body: formData  // ← Standard file upload
 });
 
-const photoEgg = await response.json();
+const photoData = await response.json();
 // {
 //   hothash: "abc123...",
 //   hotpreview_base64: "...",
@@ -353,11 +353,11 @@ const photoEgg = await response.json();
 //   has_gps: true
 // }
 
-// Send PhotoEgg to remote backend
+// Send photo data to remote backend
 await fetch('https://backend.com/api/photos', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(photoEgg)
+  body: JSON.stringify(photoData)
 });
 ```
 
@@ -380,8 +380,8 @@ if "coldpreview_base64" in photo_data:
 ```
 
 **See `BACKEND_MIGRATION.md` for complete backend integration guide**, including:
-- New endpoint: `POST /api/v1/photos/photoegg`
-- Pydantic schema for PhotoEgg validation
+- New endpoint: `POST /api/v1/photos`
+- Pydantic schema for PhotoCreateSchema validation
 - Coldpreview storage strategies (Database/Disk/S3/Skip)
 - Incremental migration strategy (no breaking changes)
 
@@ -418,7 +418,7 @@ Same hothash can exist at multiple locations - backend tracks metadata, user tra
 - `src/imalink_core/models/photo.py` - CorePhoto structure, to_dict/from_dict patterns
 - `PHOTO_MODEL_DESIGN.md` - Critical: explains 3-layer architecture from photographer's perspective
 - `MODEL_LAYERS_ANALYSIS.md` - Why CorePhoto is NOT the canonical API model
-- `BACKEND_MIGRATION.md` - Guide for integrating PhotoEgg API in backend server
+- `BACKEND_MIGRATION.md` - Guide for integrating PhotoCreateSchema API in backend server
 
 ## Project-Specific Patterns
 
@@ -459,7 +459,7 @@ class ImportResult:
 
 1. **Core is stateless** - No storage, no caching, no persistence. Pure algorithmic processing.
 2. **Don't treat CorePhoto as the API model** - It's for internal processing. Backend creates its own model.
-3. **Coldpreview inclusion is optional** - Consumer decides whether to include in PhotoEgg (bandwidth vs completeness)
+3. **Coldpreview inclusion is optional** - Consumer decides whether to include in PhotoCreateSchema (bandwidth vs completeness)
 4. **GPS is optional** - Always check `has_gps` and `gps_latitude is not None`
 5. **Camera settings are best-effort** - 30% of consumer photos lack ISO/aperture/etc
 6. **Hothash is from preview, not original** - Same original can have different hothash if preview generation changes

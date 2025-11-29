@@ -1,7 +1,7 @@
 """
 Integration tests for the FastAPI service endpoint.
 
-Tests the complete HTTP API flow: multipart/form-data file upload -> processing -> PhotoEgg JSON response.
+Tests the complete HTTP API flow: multipart/form-data file upload -> processing -> PhotoCreateSchema JSON response.
 """
 
 import sys
@@ -34,27 +34,27 @@ class TestProcessEndpoint:
             )
         
         assert response.status_code == 200
-        photo_egg = response.json()
+        photo_data = response.json()
         
-        # Verify PhotoEgg structure (PhotoCreateSchema)
-        assert "hothash" in photo_egg
-        assert "hotpreview_base64" in photo_egg
-        assert "coldpreview_base64" in photo_egg
-        assert "image_file_list" in photo_egg
-        assert "width" in photo_egg
-        assert "height" in photo_egg
-        assert "exif_dict" in photo_egg
+        # Verify PhotoCreateSchema structure
+        assert "hothash" in photo_data
+        assert "hotpreview_base64" in photo_data
+        assert "coldpreview_base64" in photo_data
+        assert "image_file_list" in photo_data
+        assert "width" in photo_data
+        assert "height" in photo_data
+        assert "exif_dict" in photo_data
         
         # Verify hotpreview is present
-        assert photo_egg["hotpreview_base64"] is not None
-        assert len(photo_egg["hotpreview_base64"]) > 0
+        assert photo_data["hotpreview_base64"] is not None
+        assert len(photo_data["hotpreview_base64"]) > 0
         
         # Verify coldpreview is NOT present (default behavior)
-        assert photo_egg["coldpreview_base64"] is None
+        assert photo_data["coldpreview_base64"] is None
         
         # Verify image_file_list
-        assert len(photo_egg["image_file_list"]) == 1
-        assert photo_egg["image_file_list"][0]["filename"] == "test.jpg"
+        assert len(photo_data["image_file_list"]) == 1
+        assert photo_data["image_file_list"][0]["filename"] == "test.jpg"
 
     def test_upload_jpeg_with_coldpreview(self):
         """Test JPEG upload WITH coldpreview requested."""
@@ -68,14 +68,14 @@ class TestProcessEndpoint:
             )
         
         assert response.status_code == 200
-        photo_egg = response.json()
+        photo_data = response.json()
         
         # Verify coldpreview IS present
-        assert photo_egg["coldpreview_base64"] is not None
-        assert len(photo_egg["coldpreview_base64"]) > 0
+        assert photo_data["coldpreview_base64"] is not None
+        assert len(photo_data["coldpreview_base64"]) > 0
         
         # Verify filename in image_file_list
-        assert photo_egg["image_file_list"][0]["filename"] == "photo.jpg"
+        assert photo_data["image_file_list"][0]["filename"] == "photo.jpg"
 
     def test_upload_png(self):
         """Test PNG upload."""
@@ -88,10 +88,10 @@ class TestProcessEndpoint:
             )
         
         assert response.status_code == 200
-        photo_egg = response.json()
+        photo_data = response.json()
         
-        assert photo_egg["hotpreview_base64"] is not None
-        assert photo_egg["image_file_list"][0]["filename"] == "image.png"
+        assert photo_data["hotpreview_base64"] is not None
+        assert photo_data["image_file_list"][0]["filename"] == "image.png"
 
     def test_upload_with_exif_data(self):
         """Test that EXIF metadata is extracted correctly."""
@@ -104,16 +104,16 @@ class TestProcessEndpoint:
             )
         
         assert response.status_code == 200
-        photo_egg = response.json()
+        photo_data = response.json()
         
         # Check EXIF fields exist in exif_dict (values depend on test fixture)
-        assert "taken_at" in photo_egg
-        assert "gps_latitude" in photo_egg
-        assert "gps_longitude" in photo_egg
-        assert "exif_dict" in photo_egg
+        assert "taken_at" in photo_data
+        assert "gps_latitude" in photo_data
+        assert "gps_longitude" in photo_data
+        assert "exif_dict" in photo_data
         # Camera fields are in exif_dict
-        if photo_egg["exif_dict"]:
-            assert "camera_make" in photo_egg["exif_dict"] or "camera_model" in photo_egg["exif_dict"]
+        if photo_data["exif_dict"]:
+            assert "camera_make" in photo_data["exif_dict"] or "camera_model" in photo_data["exif_dict"]
 
     def test_upload_landscape_image(self):
         """Test landscape orientation."""
@@ -126,13 +126,13 @@ class TestProcessEndpoint:
             )
         
         assert response.status_code == 200
-        photo_egg = response.json()
+        photo_data = response.json()
         
         # Hotpreview should be present
-        assert photo_egg["hotpreview_base64"] is not None
+        assert photo_data["hotpreview_base64"] is not None
         
         # Original dimensions should be landscape
-        assert photo_egg["width"] > photo_egg["height"]
+        assert photo_data["width"] > photo_data["height"]
 
     def test_upload_portrait_image(self):
         """Test portrait orientation."""
@@ -145,13 +145,13 @@ class TestProcessEndpoint:
             )
         
         assert response.status_code == 200
-        photo_egg = response.json()
+        photo_data = response.json()
         
         # Hotpreview should be present
-        assert photo_egg["hotpreview_base64"] is not None
+        assert photo_data["hotpreview_base64"] is not None
         
         # Original dimensions should be portrait
-        assert photo_egg["height"] > photo_egg["width"]
+        assert photo_data["height"] > photo_data["width"]
 
     def test_hothash_deterministic(self):
         """Test that same image produces same hothash."""
@@ -173,15 +173,15 @@ class TestProcessEndpoint:
         assert response1.status_code == 200
         assert response2.status_code == 200
         
-        photo_egg1 = response1.json()
-        photo_egg2 = response2.json()
+        photo_data1 = response1.json()
+        photo_data2 = response2.json()
         
         # Same image = same hothash (despite different filenames)
-        assert photo_egg1["hothash"] == photo_egg2["hothash"]
+        assert photo_data1["hothash"] == photo_data2["hothash"]
         
         # But filenames should be different
-        assert photo_egg1["image_file_list"][0]["filename"] == "test1.jpg"
-        assert photo_egg2["image_file_list"][0]["filename"] == "test2.jpg"
+        assert photo_data1["image_file_list"][0]["filename"] == "test1.jpg"
+        assert photo_data2["image_file_list"][0]["filename"] == "test2.jpg"
 
 
 class TestErrorHandling:
@@ -271,14 +271,14 @@ class TestBase64Encoding:
             )
         
         assert response.status_code == 200
-        photo_egg = response.json()
+        photo_data = response.json()
         
         # hotpreview_base64 should be a string
-        assert isinstance(photo_egg["hotpreview_base64"], str)
+        assert isinstance(photo_data["hotpreview_base64"], str)
         
         # Should be valid Base64 (can be decoded)
         try:
-            decoded = base64.b64decode(photo_egg["hotpreview_base64"])
+            decoded = base64.b64decode(photo_data["hotpreview_base64"])
             assert len(decoded) > 0
             # Should start with JPEG header
             assert decoded[:2] == b"\xff\xd8"
@@ -299,14 +299,14 @@ class TestBase64Encoding:
             )
         
         assert response.status_code == 200
-        photo_egg = response.json()
+        photo_data = response.json()
         
         # coldpreview_base64 should be a string
-        assert isinstance(photo_egg["coldpreview_base64"], str)
+        assert isinstance(photo_data["coldpreview_base64"], str)
         
         # Should be valid Base64
         try:
-            decoded = base64.b64decode(photo_egg["coldpreview_base64"])
+            decoded = base64.b64decode(photo_data["coldpreview_base64"])
             assert len(decoded) > 0
             # Should start with JPEG header
             assert decoded[:2] == b"\xff\xd8"

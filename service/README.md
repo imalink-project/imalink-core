@@ -1,6 +1,6 @@
 # ImaLink Core - FastAPI Service
 
-Image processing HTTP service. Upload image → get PhotoEgg JSON.
+Image processing HTTP service. Upload image → get photo data JSON.
 
 ## Quick Start
 
@@ -21,17 +21,17 @@ Service runs on: `http://localhost:8765`
 ### curl Examples
 
 ```bash
-# Minimal PhotoEgg (hotpreview only)
+# Minimal response (hotpreview only)
 curl -X POST http://localhost:8765/v1/process \
   -F "file=@photo.jpg"
 
-# Full PhotoEgg (with coldpreview)
+# Full response (with coldpreview)
 curl -X POST http://localhost:8765/v1/process \
   -F "file=@photo.jpg" \
   -F "coldpreview_size=2560"
 ```
 
-### Response (PhotoEgg JSON)
+### Response (PhotoCreateSchema JSON)
 
 ```json
 {
@@ -69,8 +69,8 @@ const response = await fetch('http://localhost:8765/v1/process', {
   body: formData
 });
 
-const photoEgg = await response.json();
-console.log('Hothash:', photoEgg.hothash);
+const photoData = await response.json();
+console.log('Hothash:', photoData.hothash);
 ```
 
 ### TypeScript/JavaScript (Node.js)
@@ -88,7 +88,7 @@ const response = await fetch('http://localhost:8765/v1/process', {
   body: formData
 });
 
-const photoEgg = await response.json();
+const photoData = await response.json();
 ```
 
 ### Python
@@ -106,8 +106,8 @@ with open('/photos/IMG_1234.jpg', 'rb') as f:
         data=data
     )
     
-photo_egg = response.json()
-print(f"Hothash: {photo_egg['hothash']}")
+photo_data = response.json()
+print(f"Hothash: {photo_data['hothash']}")
 ```
 
 ### Electron/Tauri (Desktop App)
@@ -135,13 +135,13 @@ const response = await fetch('http://localhost:8765/v1/process', {
   body: formData
 });
 
-const photoEgg = await response.json();
+const photoData = await response.json();
 
-// Send PhotoEgg to remote backend
+// Send photo data to remote backend
 await fetch('https://backend.com/api/photos', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(photoEgg)
+  body: JSON.stringify(photoData)
 });
 ```
 
@@ -150,9 +150,9 @@ await fetch('https://backend.com/api/photos', {
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `file` | File | Yes | Image file (JPEG, PNG, etc.) |
-| `coldpreview_size` | int | No | Size for coldpreview (e.g., 2560). Omit for minimal PhotoEgg. Must be >= 150. |
+| `coldpreview_size` | int | No | Size for coldpreview (e.g., 2560). Omit for minimal response. Must be >= 150. |
 
-## PhotoEgg Fields
+## Response Fields (PhotoCreateSchema)
 
 | Field | Type | Always Present | Description |
 |-------|------|----------------|-------------|
