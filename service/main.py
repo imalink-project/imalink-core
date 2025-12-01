@@ -153,26 +153,21 @@ async def process_image_endpoint(
             coldpreview_width = None
             coldpreview_height = None
         
-        # Build exif_dict with all EXIF metadata
-        exif_dict: Dict[str, Any] = {}
-        
-        # Add all available EXIF fields
-        if metadata.camera_make:
-            exif_dict["camera_make"] = metadata.camera_make
-        if metadata.camera_model:
-            exif_dict["camera_model"] = metadata.camera_model
-        if camera_settings.iso:
-            exif_dict["iso"] = camera_settings.iso
-        if camera_settings.aperture:
-            exif_dict["aperture"] = camera_settings.aperture
-        if camera_settings.shutter_speed:
-            exif_dict["shutter_speed"] = camera_settings.shutter_speed
-        if camera_settings.focal_length:
-            exif_dict["focal_length"] = camera_settings.focal_length
-        if camera_settings.lens_model:
-            exif_dict["lens_model"] = camera_settings.lens_model
-        if camera_settings.lens_make:
-            exif_dict["lens_make"] = camera_settings.lens_make
+        # Build exif_dict with all EXIF metadata (include None values for frontend display)
+        exif_dict: Dict[str, Any] = {
+            "camera_make": metadata.camera_make,
+            "camera_model": metadata.camera_model,
+            "iso": camera_settings.iso,
+            "aperture": camera_settings.aperture,
+            "shutter_speed": camera_settings.shutter_speed,
+            "focal_length": camera_settings.focal_length,
+            "lens_model": camera_settings.lens_model,
+            "lens_make": camera_settings.lens_make,
+            "flash": camera_settings.flash,
+            "exposure_program": camera_settings.exposure_program,
+            "metering_mode": camera_settings.metering_mode,
+            "white_balance": camera_settings.white_balance,
+        }
         
         # Build image_file_list
         image_file = ImageFileCreateSchema(
