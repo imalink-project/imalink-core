@@ -27,11 +27,18 @@ class FormatDetector:
     
     SUPPORTED_EXTENSIONS: Set[str] = {
         '.jpg', '.jpeg', '.png', '.tiff', '.tif',
-        '.nef', '.cr2', '.arw', '.dng', '.heic', '.webp'
+        '.nef', '.cr2', '.arw', '.dng', '.orf', '.rw2', '.raf',
+        '.heic', '.webp'
     }
     
     RAW_EXTENSIONS: Set[str] = {
-        '.nef', '.cr2', '.arw', '.dng'
+        '.nef',  # Nikon
+        '.cr2',  # Canon
+        '.arw',  # Sony
+        '.dng',  # Adobe/Universal
+        '.orf',  # Olympus
+        '.rw2',  # Panasonic
+        '.raf',  # Fujifilm
     }
     
     @staticmethod

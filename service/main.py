@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from imalink_schemas import PhotoCreateSchema, ImageFileCreateSchema
 from imalink_core.metadata.exif_extractor import ExifExtractor
 from imalink_core.preview.generator import PreviewGenerator
+from imalink_core.image.raw_processor import RawProcessor
 from PIL import Image, ImageOps
 
 # Initialize FastAPI app
@@ -101,22 +102,43 @@ async def process_image_endpoint(
         # Read uploaded file into memory
         image_bytes = await file.read()
         
-        # Validate it's an image and open it
-        try:
-            img = Image.open(BytesIO(image_bytes))
-            img.verify()  # Check if it's a valid image
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid image file: {str(e)}"
-            )
+        # Check if it's a RAW file and convert if needed
+        is_raw = RawProcessor.is_raw_file(file.filename or "")
         
-        # Re-open image for processing (verify() closes it) and apply EXIF rotation
-        img = Image.open(BytesIO(image_bytes))
-        try:
-            img = ImageOps.exif_transpose(img)  # Rotate based on EXIF orientation
-        except Exception:
-            pass  # No EXIF orientation or already correct
+        if is_raw:
+            # RAW file - convert to PIL Image using rawpy
+            if not RawProcessor.is_available():
+                raise HTTPException(
+                    status_code=400,
+                    detail="RAW file support not installed. Install with: uv pip install rawpy"
+                )
+            
+            success, img, error = RawProcessor.convert_raw_to_image(image_bytes)
+            if not success:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to process RAW file: {error}"
+                )
+            
+            # RAW is already converted to correct orientation, no EXIF transpose needed
+            
+        else:
+            # Standard image format (JPEG, PNG, etc.) - validate and open
+            try:
+                img = Image.open(BytesIO(image_bytes))
+                img.verify()  # Check if it's a valid image
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid image file: {str(e)}"
+                )
+            
+            # Re-open image for processing (verify() closes it) and apply EXIF rotation
+            img = Image.open(BytesIO(image_bytes))
+            try:
+                img = ImageOps.exif_transpose(img)  # Rotate based on EXIF orientation
+            except Exception:
+                pass  # No EXIF orientation or already correct
         
         # Extract metadata from bytes
         metadata = ExifExtractor.extract_basic_from_bytes(image_bytes)
